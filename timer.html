@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>班級多功能倒數計時器 | 課堂活動與修仙專注專用</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@700;800&family=Noto+Sans+TC:wght@400;600;700;900&display=swap" rel="stylesheet">
+
+    <style>
+        :root {
+            --ring-color: #6366f1;
+            --ring-bg: rgba(255, 255, 255, 0.08);
+        }
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            user-select: none;
+            transition: background-color 0.4s ease, color 0.4s ease;
+        }
+        .digit-font {
+            font-family: 'JetBrains Mono', monospace;
+            font-variant-numeric: tabular-nums;
+        }
+
+        /* 脈搏心跳動畫 (最後10秒) */
+        @keyframes urgent-pulse {
+            0%, 100% { transform: scale(1); filter: drop-shadow(0 0 15px rgba(239, 68, 68, 0.4)); }
+            50% { transform: scale(1.03); filter: drop-shadow(0 0 35px rgba(239, 68, 68, 0.8)); }
+        }
+        .pulse-urgent {
+            animation: urgent-pulse 1s infinite cubic-bezier(0.4, 0, 0.6, 1);
+        }
+
+        /* 時間到慶祝/閃爍動畫 */
+        @keyframes timeup-glow {
+            0%, 100% { transform: scale(1); box-shadow: 0 0 25px rgba(245, 158, 11, 0.6); }
+            50% { transform: scale(1.02); box-shadow: 0 0 60px rgba(239, 68, 68, 0.9); }
+        }
+        .timeup-active {
+            animation: timeup-glow 0.8s infinite;
+        }
+
+        /* 圓環進度條 SVG */
+        .progress-ring-circle {
+            transition: stroke-dashoffset 0.35s linear, stroke 0.4s ease;
+            transform: rotate(-90deg);
+            transform-origin: 50% 50%;
+        }
+
+        /* 主題樣式 */
+        body.theme-dark {
+            background: radial-gradient(circle at 50% 15%, #1e1138 0%, #0c0914 80%);
+            color: #f1f5f9;
+        }
+        body.theme-light {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            color: #0f172a;
+        }
+        body.theme-light .card-bg {
+            background-color: rgba(255, 255, 255, 0.85);
+            border-color: #cbd5e1;
+            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+        }
+        body.theme-cyber {
+            background: radial-gradient(circle at 50% 20%, #064e3b 0%, #022c22 40%, #02110c 90%);
+            color: #ecfdf5;
+        }
+
+        /* 全螢幕微調 */
+        :fullscreen {
+            padding: 0;
+            margin: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+    </style>
+</head>
+<body class="theme-dark min-h-screen flex flex-col justify-between overflow-x-hidden">
+
+    <!-- 頂部控制列 -->
+    <header class="w-full px-6 py-4 flex flex-wrap items-center justify-between gap-4 border-b border-white/10 backdrop-blur-md">
+        <div class="flex items-center gap-3">
+            <span class="text-3xl text-indigo-400">⏱️</span>
+            <div>
+                <h1 class="text-xl md:text-2xl font-black tracking-wide flex items-center gap-2">
+                    班級專用倒數計時器
+                    <span id="mode-badge" class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-semibold">倒數模式</span>
+                </h1>
+                <p class="text-xs text-slate-400">大螢幕投影・精準提示音・快捷鍵支援 (空白鍵開始/暫停)</p>
+            </div>
+        </div>
+
+        <!-- 模式切換與工具按鈕 -->
+        <div class="flex items-center flex-wrap gap-2">
+            <!-- 模式切換分頁 -->
+            <div class="inline-flex rounded-xl bg-black/30 p-1 border border-white/10 text-sm">
+                <button onclick="setMode('countdown')" id="tab-countdown" class="px-3 py-1.5 rounded-lg font-bold transition-all bg-indigo-600 text-white shadow">倒數計時</button>
+                <button onclick="setMode('stopwatch')" id="tab-stopwatch" class="px-3 py-1.5 rounded-lg font-medium transition-all text-slate-300 hover:text-white">碼表正數</button>
+                <button onclick="setMode('pomodoro')" id="tab-pomodoro" class="px-3 py-1.5 rounded-lg font-medium transition-all text-slate-300 hover:text-white">番茄鐘</button>
+            </div>
+
+            <!-- 音效開關 -->
+            <button id="sound-btn" onclick="toggleSound()" class="p-2.5 px-3.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-semibold flex items-center gap-2 transition" title="點擊切換音效 (快捷鍵 M)">
+                <i id="sound-icon" class="fa-solid fa-volume-high text-emerald-400"></i>
+                <span id="sound-text" class="hidden sm:inline">音效開</span>
+            </button>
+
+            <!-- 滴答聲開關 -->
+            <button id="tick-btn" onclick="toggleTick()" class="p-2.5 px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm font-semibold flex items-center gap-2 transition" title="秒針滴答聲">
+                <i id="tick-icon" class="fa-solid fa-bell-slash text-slate-400"></i>
+                <span id="tick-text" class="hidden sm:inline text-xs text-slate-400">秒針無聲</span>
+            </button>
+
+            <!-- 主題切換 -->
+            <button onclick="cycleTheme()" class="p-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-sm" title="更換外觀主題">
+                <i class="fa-solid fa-palette text-amber-400"></i>
+            </button>
+
+            <!-- 全螢幕按鈕 -->
+            <button onclick="toggleFullscreen()" class="p-2.5 px-3.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-sm flex items-center gap-2 transition shadow-lg shadow-indigo-500/20" title="進入/退出投影全螢幕 (快捷鍵 F)">
+                <i id="fs-icon" class="fa-solid fa-expand"></i>
+                <span class="hidden sm:inline">投影全螢幕</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- 主內容區 -->
+    <main class="flex-1 flex flex-col items-center justify-center p-4 md:p-8 max-w-5xl mx-auto w-full">
+
+        <!-- 活動主題標籤 (可點選編輯) -->
+        <div class="w-full flex flex-col items-center mb-4">
+            <div class="flex items-center gap-2 group cursor-pointer" onclick="editEventTitle()">
+                <h2 id="event-title" class="text-2xl md:text-3xl font-black tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-indigo-300 via-purple-200 to-pink-300 hover:brightness-125 transition">
+                    🎯 小組討論倒數
+                </h2>
+                <i class="fa-solid fa-pen text-slate-500 text-sm opacity-0 group-hover:opacity-100 transition"></i>
+            </div>
+            
+            <!-- 快速情境標籤 -->
+            <div id="preset-tags" class="flex flex-wrap justify-center gap-1.5 mt-2">
+                <button onclick="setEventTitle('🎯 小組討論')" class="text-xs px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 transition">🎯 小組討論</button>
+                <button onclick="setEventTitle('📝 隨堂小考')" class="text-xs px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 transition">📝 隨堂小考</button>
+                <button onclick="setEventTitle('📖 自主閱讀 / 專注')" class="text-xs px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 transition">📖 自主閱讀</button>
+                <button onclick="setEventTitle('🧹 放學打掃')" class="text-xs px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 transition">🧹 放學打掃</button>
+                <button onclick="setEventTitle('☕ 下課休息')" class="text-xs px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 transition">☕ 下課休息</button>
+                <button onclick="setEventTitle('🏆 限時挑戰')" class="text-xs px-2.5 py-1 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 text-slate-300 transition">🏆 限時挑戰</button>
+            </div>
+        </div>
+
+        <!-- 圓環計時器本體 -->
+        <div id="timer-wrapper" class="relative flex items-center justify-center my-3 transition-all">
+            <!-- 圓環 SVG -->
+            <svg id="timer-svg" class="w-[300px] h-[300px] sm:w-[380px] sm:h-[380px] md:w-[460px] md:h-[460px]" viewBox="0 0 320 320">
+                <defs>
+                    <linearGradient id="timer-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#818cf8" />
+                        <stop offset="100%" stop-color="#c084fc" />
+                    </linearGradient>
+                    <linearGradient id="warning-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#fbbf24" />
+                        <stop offset="100%" stop-color="#f97316" />
+                    </linearGradient>
+                    <linearGradient id="urgent-gradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#f87171" />
+                        <stop offset="100%" stop-color="#ef4444" />
+                    </linearGradient>
+                </defs>
+
+                <!-- 底環 -->
+                <circle
+                    cx="160" cy="160" r="140"
+                    fill="transparent"
+                    stroke="currentColor"
+                    stroke-width="12"
+                    class="text-white/10"
+                />
+
+                <!-- 進度環 -->
+                <circle
+                    id="progress-ring"
+                    cx="160" cy="160" r="140"
+                    fill="transparent"
+                    stroke="url(#timer-gradient)"
+                    stroke-width="14"
+                    stroke-linecap="round"
+                    class="progress-ring-circle"
+                    stroke-dasharray="879.64"
+                    stroke-dashoffset="0"
+                />
+            </svg>
+
+            <!-- 圓環內部時間數字 -->
+            <div class="absolute inset-0 flex flex-col items-center justify-center text-center p-4">
+                <!-- 狀態小標題 -->
+                <div id="timer-subtext" class="text-xs sm:text-sm font-semibold tracking-wider uppercase text-indigo-300 mb-1">
+                    準備開始
+                </div>
+
+                <!-- 大字體時間數字 -->
+                <div id="time-display" class="digit-font text-5xl sm:text-7xl md:text-8xl font-extrabold tracking-tight drop-shadow-md">
+                    05:00
+                </div>
+
+                <!-- 毫秒 (碼表模式顯示) -->
+                <div id="ms-display" class="digit-font text-base sm:text-xl font-bold text-slate-400 hidden mt-1">
+                    .00
+                </div>
+
+                <!-- 時間到大字體提示 -->
+                <div id="timeup-banner" class="hidden mt-2 px-4 py-1.5 rounded-full bg-red-600 text-white font-black text-sm sm:text-base animate-bounce shadow-lg shadow-red-500/50">
+                    ⏰ 時間到！TIME'S UP！
+                </div>
+            </div>
+        </div>
+
+        <!-- 核心操作按鈕群 -->
+        <div class="flex items-center gap-4 mt-4">
+            <!-- 重新開始 / 重置 (Reset) -->
+            <button onclick="resetTimer()" class="w-14 h-14 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 text-slate-200 border border-white/10 flex items-center justify-center transition shadow-md" title="重置計時器 (R)">
+                <i class="fa-solid fa-rotate-left text-xl"></i>
+            </button>
+
+            <!-- 開始 / 暫停 (Main Action Button) -->
+            <button id="main-btn" onclick="toggleStartPause()" class="px-10 h-16 rounded-2xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-extrabold text-2xl active:scale-95 flex items-center gap-3 transition shadow-xl shadow-indigo-600/30">
+                <i id="main-btn-icon" class="fa-solid fa-play"></i>
+                <span id="main-btn-text">開始</span>
+            </button>
+
+            <!-- 碼表計圈 / 計時增加1分鐘 -->
+            <button id="quick-add-btn" onclick="adjustTime(60)" class="w-14 h-14 rounded-2xl bg-white/10 hover:bg-white/20 active:scale-95 text-slate-200 border border-white/10 flex items-center justify-center transition shadow-md" title="快速增加 1 分鐘 (+1m)">
+                <span class="text-sm font-bold">+1分</span>
+            </button>
+        </div>
+
+        <!-- 倒數模式專用：微調與時間快速預設按鈕 -->
+        <div id="countdown-controls" class="w-full mt-6 card-bg bg-white/5 p-4 rounded-2xl border border-white/10 backdrop-blur-sm">
+            <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <i class="fa-regular fa-clock"></i> 常用時間預設
+                </span>
+                <!-- 微調按鈕 -->
+                <div class="inline-flex gap-1.5 text-xs">
+                    <button onclick="adjustTime(-60)" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 text-slate-300">-1分鐘</button>
+                    <button onclick="adjustTime(-30)" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 text-slate-300">-30秒</button>
+                    <button onclick="adjustTime(30)" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 text-slate-300">+30秒</button>
+                    <button onclick="adjustTime(300)" class="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 active:scale-95 border border-white/10 text-slate-300">+5分鐘</button>
+                </div>
+            </div>
+
+            <!-- 時間預設格子 -->
+            <div class="grid grid-cols-4 sm:grid-cols-8 gap-2">
+                <button onclick="setPreset(30)" class="preset-btn py-2.5 rounded-xl bg-white/5 hover:bg-indigo-600/40 active:scale-95 border border-white/10 text-sm font-bold transition">30秒</button>
+                <button onclick="setPreset(60)" class="preset-btn py-2.5 rounded-xl bg-white/5 hover:bg-indigo-600/40 active:scale-95 border border-white/10 text-sm font-bold transition">1分鐘</button>
+                <button onclick="setPreset(120)" class="preset-btn py-2.5 rounded-xl bg-white/5 hover:bg-indigo-600/40 active:scale-95 border border-white/10 text-sm font-bold transition">2分鐘</button>
+                <button onclick="setPreset(180)" class="preset-btn py-2.5 rounded-xl bg-white/5 hover:bg-indigo-600/40 active:scale-95 border border-white/10 text-sm font-bold transition">3分鐘</button>
+                <button onclick="setPreset(300)" class="preset-btn py-2.5 rounded-xl bg-indigo-600 text-white active:scale-95 border border-indigo-500 text-sm font-bold transition">5分鐘</button>
+                <button onclick="setPreset(600)" class="preset-btn py-2.5 rounded-xl bg-white/5 hover:bg-indigo-600/40 active:scale-95 border border-white/10 text-sm font-bold transition">10分鐘</button>
+                <button onclick="setPreset(900)" class="preset-btn py-2.5 rounded-xl bg-white/5 hover:bg-indigo-600/40 active:scale-95 border border-white/10 text-sm font-bold transition">15分鐘</button>
+                <button onclick="setPreset(1500)" class="preset-btn py-2.5 rounded-xl bg-white/5 hover:bg-indigo-600/40 active:scale-95 border border-white/10 text-sm font-bold transition">25分鐘</button>
+            </div>
+
+            <!-- 自訂時間輸入折疊/彈出 -->
+            <div class="mt-4 pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-3">
+                <div class="text-xs text-slate-400">
+                    自訂設定：
+                </div>
+                <div class="flex items-center gap-2">
+                    <div class="flex items-center gap-1 bg-black/30 rounded-xl px-2 py-1 border border-white/10">
+                        <input id="input-min" type="number" min="0" max="999" value="5" class="w-14 bg-transparent text-center font-bold text-sm focus:outline-none text-white digit-font">
+                        <span class="text-xs text-slate-400">分</span>
+                        <input id="input-sec" type="number" min="0" max="59" value="0" class="w-12 bg-transparent text-center font-bold text-sm focus:outline-none text-white digit-font">
+                        <span class="text-xs text-slate-400">秒</span>
+                    </div>
+                    <button onclick="applyCustomTime()" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:scale-95 text-white font-bold text-xs transition">
+                        套用時間
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 番茄鐘模式資訊面板 (預設隱藏) -->
+        <div id="pomodoro-controls" class="hidden w-full mt-6 card-bg bg-white/5 p-4 rounded-2xl border border-white/10">
+            <div class="flex items-center justify-around text-center">
+                <div>
+                    <span class="text-xs text-slate-400">當前階段</span>
+                    <h3 id="pomo-phase-text" class="text-lg font-bold text-emerald-400">專注修行中 (25分)</h3>
+                </div>
+                <div class="h-8 w-px bg-white/10"></div>
+                <div>
+                    <span class="text-xs text-slate-400">完成番茄數</span>
+                    <h3 id="pomo-count-text" class="text-lg font-bold text-amber-400">🍅 0 個</h3>
+                </div>
+                <div class="h-8 w-px bg-white/10"></div>
+                <div class="flex gap-2">
+                    <button onclick="setPomoPhase('work')" class="px-3 py-1.5 rounded-lg bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold hover:bg-emerald-600/50">25分專注</button>
+                    <button onclick="setPomoPhase('shortBreak')" class="px-3 py-1.5 rounded-lg bg-cyan-600/30 text-cyan-300 border border-cyan-500/30 text-xs font-bold hover:bg-cyan-600/50">5分小休</button>
+                    <button onclick="setPomoPhase('longBreak')" class="px-3 py-1.5 rounded-lg bg-purple-600/30 text-purple-300 border border-purple-500/30 text-xs font-bold hover:bg-purple-600/50">15分大休</button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- 底部資訊與快捷鍵導覽 -->
+    <footer class="w-full px-6 py-3 border-t border-white/10 text-xs text-slate-400 flex flex-wrap items-center justify-between gap-2 backdrop-blur-md">
+        <div class="flex items-center gap-4">
+            <span>鍵盤快捷鍵：</span>
+            <span class="bg-white/10 px-2 py-0.5 rounded font-mono text-slate-300">Space 開始/暫停</span>
+            <span class="bg-white/10 px-2 py-0.5 rounded font-mono text-slate-300">R 重置</span>
+            <span class="bg-white/10 px-2 py-0.5 rounded font-mono text-slate-300">F 全螢幕</span>
+            <span class="bg-white/10 px-2 py-0.5 rounded font-mono text-slate-300">M 靜音開關</span>
+        </div>
+        <div class="text-right text-slate-500">
+            班級教學・自律專注輔助工具
+        </div>
+    </footer>
+
+    <!-- 邏輯腳本 -->
+    <script>
+        // ==========================================
+        // 核心狀態變數
+        // ==========================================
+        let currentMode = 'countdown'; // 'countdown' | 'stopwatch' | 'pomodoro'
+        let timerInterval = null;
+        let isRunning = false;
+
+        // 倒數計時狀態 (秒)
+        let totalDuration = 300;   // 預設 5 分鐘 (300秒)
+        let remainingSeconds = 300;
+
+        // 碼表狀態 (毫秒)
+        let stopwatchStartTime = 0;
+        let stopwatchElapsed = 0;
+
+        // 番茄鐘狀態
+        let pomoPhase = 'work'; // 'work' (25m), 'shortBreak' (5m), 'longBreak' (15m)
+        let pomoCompleted = 0;
+
+        // 音效控制 (Web Audio API - 零外部檔案依賴，100% 離線可用)
+        let soundEnabled = true;
+        let tickEnabled = false;
+        let audioCtx = null;
+
+        // 螢幕常亮控制 (WakeLock)
+        let wakeLock = null;
+
+        // SVG 進度環常數 (半徑 140 -> 2 * PI * 140 ≈ 879.64)
+        const RING_CIRCUMFERENCE = 2 * Math.PI * 140;
+
+        // DOM 元素快取
+        const timeDisplay = document.getElementById('time-display');
+        const msDisplay = document.getElementById('ms-display');
+        const timerSubtext = document.getElementById('timer-subtext');
+        const timeupBanner = document.getElementById('timeup-banner');
+        const progressRing = document.getElementById('progress-ring');
+        const timerWrapper = document.getElementById('timer-wrapper');
+        const mainBtn = document.getElementById('main-btn');
+        const mainBtnIcon = document.getElementById('main-btn-icon');
+        const mainBtnText = document.getElementById('main-btn-text');
+        const modeBadge = document.getElementById('mode-badge');
+        const soundBtn = document.getElementById('sound-btn');
+        const soundIcon = document.getElementById('sound-icon');
+        const soundText = document.getElementById('sound-text');
+        const tickBtn = document.getElementById('tick-btn');
+        const tickIcon = document.getElementById('tick-icon');
+        const tickText = document.getElementById('tick-text');
+        const countdownControls = document.getElementById('countdown-controls');
+        const pomodoroControls = document.getElementById('pomodoro-controls');
+        const eventTitle = document.getElementById('event-title');
+
+        // ==========================================
+        // Web Audio API 音效引擎 (免外部音訊檔)
+        // ==========================================
+        function getAudioContext() {
+            if (!audioCtx) {
+                const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+                if (AudioContextClass) {
+                    audioCtx = new AudioContextClass();
+                }
+            }
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            return audioCtx;
+        }
+
+        // 撥放單音 (Hz, 持續秒, 類型, 音量)
+        function playBeep(freq = 600, duration = 0.15, type = 'sine', volume = 0.25) {
+            if (!soundEnabled) return;
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const osc = ctx.createOscillator();
+                const gain = ctx.createGain();
+
+                osc.type = type;
+                osc.frequency.setValueAtTime(freq, ctx.currentTime);
+
+                gain.gain.setValueAtTime(volume, ctx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + duration);
+
+                osc.connect(gain);
+                gain.connect(ctx.destination);
+
+                osc.start();
+                osc.stop(ctx.currentTime + duration);
+            } catch (e) {
+                console.warn('Audio play failed', e);
+            }
+        }
+
+        // 輕巧的秒針滴答聲
+        function playTick() {
+            if (!tickEnabled || !soundEnabled) return;
+            playBeep(1200, 0.03, 'triangle', 0.06);
+        }
+
+        // 最後5秒警報逼逼聲
+        function playWarningBeep() {
+            if (!soundEnabled) return;
+            playBeep(880, 0.12, 'square', 0.2);
+        }
+
+        // 時間到歡樂三重和弦鐘聲
+        function playTimeUpChime() {
+            if (!soundEnabled) return;
+            try {
+                const ctx = getAudioContext();
+                if (!ctx) return;
+                const notes = [523.25, 659.25, 783.99, 1046.50]; // C5, E5, G5, C6
+                notes.forEach((freq, idx) => {
+                    setTimeout(() => {
+                        playBeep(freq, 0.5, 'triangle', 0.35);
+                    }, idx * 160);
+                });
+                // 再次響一次提醒
+                setTimeout(() => {
+                    notes.forEach((freq, idx) => {
+                        setTimeout(() => {
+                            playBeep(freq * 1.25, 0.6, 'sine', 0.35);
+                        }, idx * 140);
+                    });
+                }, 1000);
+            } catch (e) {
+                console.warn(e);
+            }
+        }
+
+        // ==========================================
+        // 螢幕喚醒 (避免授課中投影螢幕休眠)
+        // ==========================================
+        async function requestWakeLock() {
+            try {
+                if ('wakeLock' in navigator && !wakeLock) {
+                    wakeLock = await navigator.wakeLock.request('screen');
+                    wakeLock.addEventListener('release', () => {
+                        wakeLock = null;
+                    });
+                }
+            } catch (err) {
+                console.log('WakeLock error:', err);
+            }
+        }
+
+        function releaseWakeLock() {
+            if (wakeLock) {
+                wakeLock.release();
+                wakeLock = null;
+            }
+        }
+
+        // ==========================================
+        // 時間格式化工具
+        // ==========================================
+        function formatTime(totalSec) {
+            const h = Math.floor(totalSec / 3600);
+            const m = Math.floor((totalSec % 3600) / 60);
+            const s = Math.floor(totalSec % 60);
+
+            if (h > 0) {
+                return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            } else {
+                return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+            }
+        }
+
+        // ==========================================
+        // 渲染更新
+        // ==========================================
+        function updateDisplay() {
+            if (currentMode === 'countdown' || currentMode === 'pomodoro') {
+                timeDisplay.textContent = formatTime(remainingSeconds);
+                msDisplay.classList.add('hidden');
+                document.title = `${formatTime(remainingSeconds)} - ${eventTitle.textContent.trim()} | 計時器`;
+
+                // 更新進度環
+                const progressRatio = totalDuration > 0 ? (remainingSeconds / totalDuration) : 0;
+                const offset = RING_CIRCUMFERENCE * (1 - progressRatio);
+                progressRing.style.strokeDashoffset = offset;
+
+                // 視覺樣式反饋 (警戒色 & 心跳)
+                if (remainingSeconds === 0) {
+                    timerSubtext.textContent = '時間結束！';
+                    progressRing.setAttribute('stroke', 'url(#urgent-gradient)');
+                    timerWrapper.classList.remove('pulse-urgent');
+                    timerWrapper.classList.add('timeup-active');
+                    timeupBanner.classList.remove('hidden');
+                } else if (remainingSeconds <= 10) {
+                    timerSubtext.textContent = '最後倒數！加油！';
+                    progressRing.setAttribute('stroke', 'url(#urgent-gradient)');
+                    timerWrapper.classList.add('pulse-urgent');
+                    timerWrapper.classList.remove('timeup-active');
+                    timeupBanner.classList.add('hidden');
+                } else if (remainingSeconds <= 60 && totalDuration > 90) {
+                    timerSubtext.textContent = '剩餘不到 1 分鐘';
+                    progressRing.setAttribute('stroke', 'url(#warning-gradient)');
+                    timerWrapper.classList.remove('pulse-urgent', 'timeup-active');
+                    timeupBanner.classList.add('hidden');
+                } else {
+                    timerSubtext.textContent = isRunning ? '計時進行中...' : '已暫停';
+                    progressRing.setAttribute('stroke', 'url(#timer-gradient)');
+                    timerWrapper.classList.remove('pulse-urgent', 'timeup-active');
+                    timeupBanner.classList.add('hidden');
+                }
+            } else if (currentMode === 'stopwatch') {
+                const totalSec = Math.floor(stopwatchElapsed / 1000);
+                const ms = Math.floor((stopwatchElapsed % 1000) / 10);
+                timeDisplay.textContent = formatTime(totalSec);
+                msDisplay.textContent = `.${String(ms).padStart(2, '0')}`;
+                msDisplay.classList.remove('hidden');
+                document.title = `${formatTime(totalSec)}.${String(ms).padStart(2, '0')} - 碼表`;
+
+                // 碼表讓圓環依據 60 秒旋轉一圈
+                const secondFraction = (stopwatchElapsed % 60000) / 60000;
+                progressRing.style.strokeDashoffset = RING_CIRCUMFERENCE * (1 - secondFraction);
+                progressRing.setAttribute('stroke', 'url(#timer-gradient)');
+                timerWrapper.classList.remove('pulse-urgent', 'timeup-active');
+                timeupBanner.classList.add('hidden');
+                timerSubtext.textContent = isRunning ? '碼表計時中...' : '已暫停';
+            }
+        }
+
+        // ==========================================
+        // 計時器控制 (開始 / 暫停 / 重置)
+        // ==========================================
+        function toggleStartPause() {
+            getAudioContext(); // 觸發使用者手勢啟動 AudioContext
+            if (isRunning) {
+                pauseTimer();
+            } else {
+                startTimer();
+            }
+        }
+
+        function startTimer() {
+            if (currentMode === 'countdown' || currentMode === 'pomodoro') {
+                if (remainingSeconds <= 0) {
+                    remainingSeconds = totalDuration;
+                }
+            }
+            isRunning = true;
+            requestWakeLock();
+            updateButtonState(true);
+
+            if (currentMode === 'stopwatch') {
+                stopwatchStartTime = performance.now() - stopwatchElapsed;
+                timerInterval = requestAnimationFrame(runStopwatch);
+            } else {
+                let lastTickTime = performance.now();
+                timerInterval = setInterval(() => {
+                    if (remainingSeconds > 0) {
+                        remainingSeconds--;
+                        playTick();
+
+                        // 倒數 5, 4, 3, 2, 1 提示
+                        if (remainingSeconds <= 5 && remainingSeconds > 0) {
+                            playWarningBeep();
+                        }
+
+                        if (remainingSeconds === 0) {
+                            handleTimerComplete();
+                        }
+                    }
+                    updateDisplay();
+                }, 1000);
+            }
+            updateDisplay();
+        }
+
+        function runStopwatch(now) {
+            if (!isRunning) return;
+            stopwatchElapsed = now - stopwatchStartTime;
+            updateDisplay();
+            timerInterval = requestAnimationFrame(runStopwatch);
+        }
+
+        function pauseTimer() {
+            isRunning = false;
+            if (currentMode === 'stopwatch') {
+                cancelAnimationFrame(timerInterval);
+            } else {
+                clearInterval(timerInterval);
+            }
+            releaseWakeLock();
+            updateButtonState(false);
+            updateDisplay();
+        }
+
+        function resetTimer() {
+            pauseTimer();
+            if (currentMode === 'countdown' || currentMode === 'pomodoro') {
+                remainingSeconds = totalDuration;
+            } else if (currentMode === 'stopwatch') {
+                stopwatchElapsed = 0;
+            }
+            updateDisplay();
+        }
+
+        function handleTimerComplete() {
+            pauseTimer();
+            playTimeUpChime();
+
+            // 若為番茄鐘模式，自動累計並切換
+            if (currentMode === 'pomodoro') {
+                if (pomoPhase === 'work') {
+                    pomoCompleted++;
+                    document.getElementById('pomo-count-text').textContent = `🍅 ${pomoCompleted} 個`;
+                    if (pomoCompleted % 4 === 0) {
+                        setPomoPhase('longBreak');
+                    } else {
+                        setPomoPhase('shortBreak');
+                    }
+                } else {
+                    setPomoPhase('work');
+                }
+            }
+        }
+
+        function updateButtonState(running) {
+            if (running) {
+                mainBtn.classList.remove('from-indigo-500', 'via-indigo-600', 'to-purple-600');
+                mainBtn.classList.add('from-amber-500', 'via-amber-600', 'to-orange-600');
+                mainBtnIcon.className = 'fa-solid fa-pause';
+                mainBtnText.textContent = '暫停';
+            } else {
+                mainBtn.classList.add('from-indigo-500', 'via-indigo-600', 'to-purple-600');
+                mainBtn.classList.remove('from-amber-500', 'via-amber-600', 'to-orange-600');
+                mainBtnIcon.className = 'fa-solid fa-play';
+                mainBtnText.textContent = '開始';
+            }
+        }
+
+        // ==========================================
+        // 倒數調整與預設值
+        // ==========================================
+        function adjustTime(secondsDelta) {
+            if (currentMode === 'stopwatch') return;
+            const newRemaining = Math.max(5, remainingSeconds + secondsDelta);
+            remainingSeconds = newRemaining;
+            if (newRemaining > totalDuration) {
+                totalDuration = newRemaining;
+            }
+            updateDisplay();
+        }
+
+        function setPreset(seconds) {
+            pauseTimer();
+            totalDuration = seconds;
+            remainingSeconds = seconds;
+            highlightPresetButton(seconds);
+            updateDisplay();
+        }
+
+        function highlightPresetButton(seconds) {
+            document.querySelectorAll('.preset-btn').forEach(btn => {
+                btn.classList.remove('bg-indigo-600', 'text-white', 'border-indigo-500');
+                btn.classList.add('bg-white/5', 'text-slate-300', 'border-white/10');
+            });
+            // 標示選取的按鈕
+            const matched = Array.from(document.querySelectorAll('.preset-btn')).find(b => b.getAttribute('onclick')?.includes(`(${seconds})`));
+            if (matched) {
+                matched.classList.remove('bg-white/5', 'text-slate-300', 'border-white/10');
+                matched.classList.add('bg-indigo-600', 'text-white', 'border-indigo-500');
+            }
+        }
+
+        function applyCustomTime() {
+            const min = parseInt(document.getElementById('input-min').value, 10) || 0;
+            const sec = parseInt(document.getElementById('input-sec').value, 10) || 0;
+            const total = min * 60 + sec;
+            if (total > 0) {
+                pauseTimer();
+                totalDuration = total;
+                remainingSeconds = total;
+                updateDisplay();
+            }
+        }
+
+        // ==========================================
+        // 模式切換 (倒數 / 碼表 / 番茄鐘)
+        // ==========================================
+        function setMode(mode) {
+            pauseTimer();
+            currentMode = mode;
+
+            // 標籤頁樣式切換
+            ['countdown', 'stopwatch', 'pomodoro'].forEach(m => {
+                const tab = document.getElementById(`tab-${m}`);
+                if (m === mode) {
+                    tab.className = 'px-3 py-1.5 rounded-lg font-bold transition-all bg-indigo-600 text-white shadow';
+                } else {
+                    tab.className = 'px-3 py-1.5 rounded-lg font-medium transition-all text-slate-300 hover:text-white';
+                }
+            });
+
+            if (mode === 'countdown') {
+                modeBadge.textContent = '倒數模式';
+                countdownControls.classList.remove('hidden');
+                pomodoroControls.classList.add('hidden');
+                document.getElementById('quick-add-btn').classList.remove('hidden');
+                remainingSeconds = totalDuration;
+            } else if (mode === 'stopwatch') {
+                modeBadge.textContent = '碼表模式';
+                countdownControls.classList.add('hidden');
+                pomodoroControls.classList.add('hidden');
+                document.getElementById('quick-add-btn').classList.add('hidden');
+                stopwatchElapsed = 0;
+            } else if (mode === 'pomodoro') {
+                modeBadge.textContent = '番茄鐘模式';
+                countdownControls.classList.add('hidden');
+                pomodoroControls.classList.remove('hidden');
+                document.getElementById('quick-add-btn').classList.remove('hidden');
+                setPomoPhase('work');
+            }
+            updateDisplay();
+        }
+
+        function setPomoPhase(phase) {
+            pomoPhase = phase;
+            const phaseText = document.getElementById('pomo-phase-text');
+            pauseTimer();
+            if (phase === 'work') {
+                totalDuration = 25 * 60;
+                phaseText.textContent = '專注修行中 (25分)';
+                phaseText.className = 'text-lg font-bold text-emerald-400';
+                setEventTitle('🧘 專注修行時間');
+            } else if (phase === 'shortBreak') {
+                totalDuration = 5 * 60;
+                phaseText.textContent = '課間短暫小休 (5分)';
+                phaseText.className = 'text-lg font-bold text-cyan-400';
+                setEventTitle('☕ 課間喝水休息');
+            } else if (phase === 'longBreak') {
+                totalDuration = 15 * 60;
+                phaseText.textContent = '大課間放鬆 (15分)';
+                phaseText.className = 'text-lg font-bold text-purple-400';
+                setEventTitle('🎉 深度放鬆大休');
+            }
+            remainingSeconds = totalDuration;
+            updateDisplay();
+        }
+
+        // ==========================================
+        // 活動自訂名稱
+        // ==========================================
+        function editEventTitle() {
+            const current = eventTitle.textContent.trim();
+            const newTitle = prompt('請輸入計時活動主題名稱：', current);
+            if (newTitle && newTitle.trim()) {
+                eventTitle.textContent = newTitle.trim();
+            }
+        }
+
+        function setEventTitle(title) {
+            eventTitle.textContent = title;
+        }
+
+        // ==========================================
+        // 音效開關切換
+        // ==========================================
+        function toggleSound() {
+            soundEnabled = !soundEnabled;
+            if (soundEnabled) {
+                soundIcon.className = 'fa-solid fa-volume-high text-emerald-400';
+                soundText.textContent = '音效開';
+                playBeep(880, 0.1, 'sine', 0.2);
+            } else {
+                soundIcon.className = 'fa-solid fa-volume-xmark text-slate-500';
+                soundText.textContent = '靜音';
+            }
+        }
+
+        function toggleTick() {
+            tickEnabled = !tickEnabled;
+            if (tickEnabled) {
+                tickIcon.className = 'fa-solid fa-clock text-indigo-400';
+                tickText.textContent = '秒針有聲';
+                tickText.className = 'hidden sm:inline text-xs text-indigo-300';
+                playTick();
+            } else {
+                tickIcon.className = 'fa-solid fa-bell-slash text-slate-400';
+                tickText.textContent = '秒針無聲';
+                tickText.className = 'hidden sm:inline text-xs text-slate-400';
+            }
+        }
+
+        // ==========================================
+        // 外觀主題切換
+        // ==========================================
+        const themes = ['theme-dark', 'theme-light', 'theme-cyber'];
+        let currentThemeIndex = 0;
+        function cycleTheme() {
+            document.body.classList.remove(themes[currentThemeIndex]);
+            currentThemeIndex = (currentThemeIndex + 1) % themes.length;
+            document.body.classList.add(themes[currentThemeIndex]);
+        }
+
+        // ==========================================
+        // 投影全螢幕 (Full Screen)
+        // ==========================================
+        function toggleFullscreen() {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.log('Fullscreen failed:', err);
+                });
+                document.getElementById('fs-icon').className = 'fa-solid fa-compress';
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+                document.getElementById('fs-icon').className = 'fa-solid fa-expand';
+            }
+        }
+
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement) {
+                document.getElementById('fs-icon').className = 'fa-solid fa-expand';
+            } else {
+                document.getElementById('fs-icon').className = 'fa-solid fa-compress';
+            }
+        });
+
+        // ==========================================
+        // 鍵盤快捷鍵 (Space, R, F, M)
+        // ==========================================
+        document.addEventListener('keydown', (e) => {
+            // 如果正在輸入框打字，不觸發快捷鍵
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+            if (e.code === 'Space') {
+                e.preventDefault();
+                toggleStartPause();
+            } else if (e.code === 'KeyR') {
+                e.preventDefault();
+                resetTimer();
+            } else if (e.code === 'KeyF') {
+                e.preventDefault();
+                toggleFullscreen();
+            } else if (e.code === 'KeyM') {
+                e.preventDefault();
+                toggleSound();
+            }
+        });
+
+        // 初始化
+        updateDisplay();
+    </script>
+</body>
+</html>

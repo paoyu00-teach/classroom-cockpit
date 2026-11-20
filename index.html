@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f2f6ff">
+  <title>課堂控台</title>
+  <link rel="stylesheet" href="style.css?v=bubble-flip-3">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="課堂控台">
+  <style>
+    /* iPad 版：PPT 自動開啟需要 Windows，iPad 上隱藏 */
+    #openPptBtn, #gameOpenPptBtn, #bindPptBtn, #restoreDefaultSlotsBtn { display: none !important; }
+  </style>
+</head>
+<body>
+<!-- 設定與班級管理畫面 -->
+<main id="setup" class="shell">
+  <header class="hero">
+    <div>
+      <div class="eyebrow">TEACHING COCKPIT · CLASSROOM COMPANION</div>
+      <h1>教師課堂控台 <span>大富翁整合版</span></h1>
+      <p>大富翁抽籤 × 課堂狀況記錄 × 下課進度速記 × PPT 一鍵跳頁</p>
+    </div>
+    <div class="hero-actions">
+      <button class="button orange" id="openTimerBtn" title="開啟課堂倒數計時器 (快捷鍵 T)">⏱️ 倒數計時器</button>
+      <button class="button dark" id="toggleFullscreenBtn" title="進入/退出投影全螢幕 (快捷鍵 F)">⛶ 全螢幕投影</button>
+      <button class="button violet" id="editCards">✦ 編輯機會與命運</button>
+      <button class="button blue" id="manageSlots">▤ 班級設定存檔</button>
+      <button class="button orange" id="viewHistory">📋 歷史進度與日誌</button>
+      <button class="button green" id="bindGoogleSheetBtn">📊 綁定 Google 試算表</button>
+    </div>
+  </header>
+
+  <!-- 上次進度提示橫幅 (附帶一鍵開啟 PPT 自動跳頁) -->
+  <section class="last-progress-banner" id="setupProgressBanner">
+    <div class="banner-icon">📌</div>
+    <div class="banner-content">
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <strong id="bannerClassTitle">尚未載入班級</strong>
+        <span id="bannerProgressText" style="color:#284366; font-size:13.5px;">上次進度載入中...</span>
+      </div>
+      <div class="banner-memo-row" style="margin-top:6px; display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <span style="font-weight:800; color:#5b21b6; font-size:13.5px; white-space:nowrap;">📝 備忘錄：</span>
+        <input type="text" id="setupMemoInput" placeholder="點此直接填寫本班作業或下次待辦事項..." style="flex:1; min-width:240px; max-width:480px; padding:6px 10px; border:1.5px solid #a78bfa; border-radius:8px; font-size:13px; background:#fff; outline:none;">
+        <button type="button" class="button violet compact" id="setupSaveMemoBtn">💾 儲存備忘</button>
+      </div>
+    </div>
+    <div class="banner-actions">
+      <button class="button green" id="openPptBtn">🚀 開啟 PPT (<span id="openPptSlideText">第 1 頁</span>)</button>
+      <div class="quick-slide-box">
+        <span class="slide-label">上到第</span>
+        <input type="number" id="setupSlideInput" min="1" max="999" value="1" title="輸入今日授課結束頁數">
+        <span class="slide-label">頁</span>
+        <button class="button blue compact" id="setupSaveSlideBtn" title="點擊直接儲存此頁數為進度">💾 儲存進度</button>
+      </div>
+      <button class="button dark compact" id="bindPptBtn">📁 綁定簡報</button>
+    </div>
+  </section>
+
+  <section class="quick">
+    <div class="section-title">⚡ 快速切換班級</div>
+    <div class="quick-slots" id="quickSlots"></div>
+  </section>
+
+  <section class="setup-grid">
+    <div class="setup-options">
+      <div class="number-row">
+        <label>機會的格子數
+          <input id="chanceCount" type="number" min="0" max="20" value="3">
+          <small>設定棋盤中產生多少格「機會」。</small>
+        </label>
+        <label>命運的格子數
+          <input id="fateCount" type="number" min="0" max="20" value="3">
+          <small>設定棋盤中產生多少格「命運」。</small>
+        </label>
+      </div>
+      <div class="io-row">
+        <button class="button green" id="exportJson">⬇ 匯出班級 JSON</button>
+        <button class="button blue" id="importJson">⬆ 匯入班級 JSON</button>
+        <input id="jsonFile" type="file" accept=".json,application/json" hidden>
+      </div>
+      <div class="io-row">
+        <button class="button violet" id="exportAllBackup" title="5 個班級的名單、進度、名單設定全部存成一個檔案，可搬到 iPad 或另一台電腦">📦 匯出全部備份</button>
+        <button class="button orange" id="importAllBackup" title="從備份檔還原全部班級資料（會覆蓋這台裝置上的班級資料）">📥 匯入全部備份</button>
+        <input id="backupFile" type="file" accept=".json,application/json" hidden>
+      </div>
+      <div class="attendance-hint">
+        <small>💡 提示：名單內若有請假同學，可在行尾加上 <code>#缺席</code> 或 <code>(假)</code>，地圖將自動略過！</small>
+      </div>
+      <button id="startGame" class="button start">▷ 生成大富翁地圖並開始上課</button>
+    </div>
+    <div class="roster">
+      <div class="roster-header">
+        <label for="names">名單輸入 <span>(每行一人，可加座號，如 01 王小明)</span></label>
+        <button class="button-link" id="quickAttendanceBtn">👥 出缺勤快速勾選</button>
+      </div>
+      <textarea id="names" spellcheck="false" placeholder="01 王小明&#10;02 李小華&#10;03 陳同學"></textarea>
+      <label class="button dark csv-button">⇧ 從 CSV 匯入名單<input id="csvFile" type="file" accept=".csv,text/csv" hidden></label>
+      <button class="button green csv-button" id="quickSaveRosterBtn" style="margin-top: 8px;">💾 立即儲存此班名單</button>
+    </div>
+  </section>
+</main>
+
+<!-- 大富翁遊戲與課堂進行畫面 -->
+<main id="game" class="game hidden">
+  <section class="board-wrap">
+    <div id="board" class="board"></div>
+  </section>
+  <section class="center-panel">
+    <div class="panel-head">
+      <div class="head-left">
+        <strong id="currentClassTag">⊗ 課堂抽籤</strong>
+        <span class="head-progress-badge" id="headProgressBadge">上次進度載入中</span>
+        <button class="button green compact" id="gameOpenPptBtn">🚀 開啟 PPT (<span id="gamePptSlideNum">1</span>)</button>
+        <div class="quick-slide-box compact-box">
+          <span class="slide-label">第</span>
+          <input type="number" id="gameSlideInput" min="1" max="999" value="1" title="輸入今日授課結束頁數">
+          <span class="slide-label">頁</span>
+          <button class="button blue compact" id="gameSaveSlideBtn" title="下課直接儲存此頁數為進度">💾 存進度</button>
+        </div>
+      </div>
+      <div class="head-right">
+        <button class="button orange compact" id="gameTimerBtn" title="開啟倒數計時器 (小組討論/考試/下課休息)">⏱️ 計時器</button>
+        <button class="button dark compact" id="gameFullscreenBtn" title="切換全螢幕投影 (快捷鍵 F)">⛶ 全螢幕</button>
+        <button class="button blue compact" id="gameSheetSyncBtn" title="點擊設定或查看 Google 試算表同步狀態">📊 試算表同步</button>
+        <button class="button red-gradient compact" id="endClassBtn">🏁 下課結算記錄</button>
+        <button class="button green compact" id="backToSetup">⇦ 回到設定</button>
+      </div>
+    </div>
+    <div class="history-strip">
+      <div><small>最近機會</small><span id="lastChance">尚未抽取</span></div>
+      <div class="center-status-wrap">
+        <strong id="status">地圖生成完畢，點擊棋盤學生可記點，擲骰子開始抽籤！</strong>
+        <div id="buffBanner" class="buff-banner hidden"></div>
+      </div>
+      <div><small>最近命運</small><span id="lastFate">尚未抽取</span></div>
+    </div>
+    <!-- 裝飾圖形列：每種形狀都有實心與空心各一個；只有星星 ★ / ☆ 是暗中按鈕，其餘純裝飾 -->
+    <div class="star-strip" aria-hidden="true">
+      <i class="deco-star">◆</i><i class="deco-star">♡&#xFE0E;</i><i class="deco-star">●</i><i class="deco-star" id="starMust">★</i><i class="deco-star">△</i><i class="deco-star">♣&#xFE0E;</i><i class="deco-star">○</i><i class="deco-star">♥&#xFE0E;</i><i class="deco-star">■</i><i class="deco-star" id="starNever">☆</i><i class="deco-star">▲</i><i class="deco-star">◇</i><i class="deco-star">♧&#xFE0E;</i><i class="deco-star">□</i>
+    </div>
+    <div class="game-controls">
+      <div class="side-controls">
+        <button id="shuffle" class="button orange">打亂位置</button>
+        <div class="dice-count">
+          <button id="diceMinus">−</button>
+          <div><small>骰子數</small><strong id="diceN">2</strong></div>
+          <button id="dicePlus">＋</button>
+        </div>
+        <button id="special" class="button muted">◎ 忽略特殊格：關</button>
+      </div>
+      <button id="drawChance" class="draw-card chance">機會</button>
+      <div class="middle-controls">
+        <div class="dice-results">
+          <span id="die1">1</span><span id="die2">1</span>
+        </div>
+        <button id="roll" class="button blue">⚄ 擲骰子</button>
+        <button id="race" class="button violet">ϟ 跑馬燈模式</button>
+      </div>
+      <button id="drawFate" class="draw-card fate">命運</button>
+    </div>
+  </section>
+</main>
+
+<!-- 點擊學生格子就地彈出的小氣泡選單 (Bubble Popover) -->
+<div id="tileBubble" class="tile-bubble hidden" role="dialog" aria-label="學生課堂記點">
+  <div class="bubble-header">
+    <span class="bubble-student-name" id="bubbleStudentName">01 王小明</span>
+    <span class="bubble-student-score" id="bubbleStudentScore">目前: 0分</span>
+    <button class="bubble-close" id="bubbleClose">×</button>
+  </div>
+  <div class="bubble-tags">
+    <button class="tag-btn tag-deduct" data-score="-3" data-reason="上課睡覺">💤 睡覺 -3</button>
+    <button class="tag-btn tag-deduct" data-score="-1" data-reason="離開教室">🚪 離開教室 -1</button>
+    <button class="tag-btn tag-deduct" data-score="-1" data-reason="未帶課本">📖 沒帶書 -1</button>
+    <button class="tag-btn tag-deduct" data-score="-1" data-reason="課堂遲到">⏰ 遲到 -1</button>
+    <button class="tag-btn tag-reward" data-score="1" data-reason="踴躍發言">💡 發言 +1</button>
+    <button class="tag-btn tag-reward" data-score="2" data-reason="答對/優良">⭐ 答對 +2</button>
+    <button class="tag-btn tag-reward" data-score="1" data-reason="加1分">➕ 加 1 分</button>
+    <button class="tag-btn tag-deduct" data-score="-1" data-reason="扣1分">➖ 扣 1 分</button>
+  </div>
+  <div class="bubble-custom-row">
+    <input type="number" id="customScoreInput" placeholder="自訂分數 (如: 5 或 -2)">
+    <input type="text" id="customReasonInput" placeholder="原因備註 (可選)">
+    <button class="button dark compact" id="customScoreBtn">送出</button>
+  </div>
+</div>
+
+<!-- 幸運星中獎彈窗 (附帶課堂快捷評分) -->
+<dialog id="winnerDialog" class="modal">
+  <div class="modal-card winner-card">
+    <canvas id="fireworks" aria-hidden="true"></canvas>
+    <div class="winner-confetti">🎉</div>
+    <h2>本次幸運星</h2>
+    <strong id="winnerName">01 王小明</strong>
+    
+    <!-- 待觸發加成或卡牌提示 -->
+    <div id="winnerBuffAlert" class="winner-buff-alert hidden"></div>
+
+    <!-- 課堂快捷評分列 -->
+    <div class="winner-scoring">
+      <small>課堂表現快速記點：</small>
+      <div class="scoring-buttons">
+        <button class="button green score-btn" data-score="1" data-reason="抽中答對">🎯 答對 +1分</button>
+        <button class="button violet score-btn" data-score="2" data-reason="精彩回答">⭐ 精彩 +2分</button>
+        <button class="button orange score-btn" data-score="-1" data-reason="抽籤扣分">⚠️ 扣 1分</button>
+        <button class="button red score-btn" data-score="-2" data-reason="未答違規">💤 扣 2分</button>
+        <button class="button dark score-btn" data-score="0" data-reason="不計分">純抽籤，不計分</button>
+      </div>
+    </div>
+
+    <div class="winner-actions">
+      <button class="button green" id="keepWinner">保留名單</button>
+      <button class="button red" id="removeWinner">暫時移除此人</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- 機會與命運卡結果彈窗 (附帶一鍵執行與兜底操作) -->
+<dialog id="cardResult" class="modal">
+  <div class="modal-card result-card">
+    <button id="closeResult" class="x-close">×</button>
+    <small id="resultType"></small>
+    <h2 id="resultText"></h2>
+    <p id="resultStudent"></p>
+    
+    <!-- 智能辨識一鍵執行區 (由系統即時偵測生成) -->
+    <div id="autoActionWrap" class="auto-action-wrap hidden">
+      <div class="auto-action-title">⚡ 系統智能辨識一鍵給分：</div>
+      <div id="autoActionButtons" class="auto-buttons"></div>
+    </div>
+
+    <!-- 兜底快速給分列 -->
+    <div class="fallback-scoring">
+      <small>自由微調或手動給分：</small>
+      <div class="quick-score-row">
+        <button class="tag-btn tag-reward" id="cardGivePlus1">+1分</button>
+        <button class="tag-btn tag-reward" id="cardGivePlus2">+2分</button>
+        <button class="tag-btn tag-reward" id="cardGivePlus5">+5分</button>
+        <button class="tag-btn tag-reward" id="cardGiveClassPlus1">全班各+1</button>
+        <button class="tag-btn tag-reward" id="cardGiveClassPlus5">全班各+5</button>
+        <button class="tag-btn tag-deduct" id="cardGiveMinus1">-1分</button>
+        <button class="tag-btn tag-deduct" id="cardGiveMinus2">-2分</button>
+      </div>
+    </div>
+
+    <button class="button blue" id="resultOk">知道了並關閉</button>
+  </div>
+</dialog>
+
+<!-- 下課結算與進度記錄彈窗 -->
+<dialog id="checkoutDialog" class="modal">
+  <form method="dialog" class="modal-card checkout-card">
+    <h2>🏁 下課進度結算與課堂日誌</h2>
+    <p>記錄本次授課進度與學生表現，下次切換此班時自動提示！</p>
+    
+    <div class="checkout-grid">
+      <div class="checkout-left">
+        <div class="field-group">
+          <label for="checkoutClassName">當前班級</label>
+          <input id="checkoutClassName" readonly>
+        </div>
+        <div class="field-group">
+          <label for="lastProgressReview">上次進度回顧</label>
+          <div id="lastProgressReview" class="review-box">尚未有前次記錄</div>
+        </div>
+        <div class="field-group-row">
+          <div style="width: 140px;">
+            <label for="todaySlideNumber">📑 本次頁數 <span class="req">*</span></label>
+            <input type="number" id="todaySlideNumber" min="1" placeholder="例：28" required>
+          </div>
+          <div style="flex: 1;">
+            <label for="todayProgressInput">📌 今日授課進度說明 <span class="req">*必填</span></label>
+            <input id="todayProgressInput" placeholder="例：第二章觀念講畢，準備習作" required>
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="nextHomeworkInput">📝 下次待辦 / 作業交代</label>
+          <input id="nextHomeworkInput" placeholder="例：習作 P.15~16、下次抽考單字">
+        </div>
+        <div class="field-group">
+          <label for="todayRemarksInput">💬 課堂備註事項</label>
+          <textarea id="todayRemarksInput" rows="2" placeholder="例：小組討論秩序良好、3號課後補考"></textarea>
+        </div>
+      </div>
+
+      <div class="checkout-right">
+        <div class="summary-title">📊 今日學生表現記點清單</div>
+        <div class="score-summary-list" id="scoreSummaryList">
+          <div class="empty-hint">今日尚無加扣分記錄</div>
+        </div>
+        <div class="summary-actions">
+          <button type="button" class="button dark compact" id="exportLogCsv">📥 匯出今日記點 CSV</button>
+          <button type="button" class="button blue compact" id="syncCheckoutToSheetBtn">📊 同步至 Google 試算表</button>
+          <button type="button" class="button orange compact" id="clearScoresBtn">↺ 重置本日分數</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="button dark" value="cancel">取消返回</button>
+      <button class="button green" type="button" id="saveCheckoutBtn">💾 儲存並結算本次進度</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 綁定 Google 試算表彈窗 -->
+<dialog id="bindGoogleSheetDialog" class="modal">
+  <div class="modal-card" style="width:min(680px, 92vw);">
+    <h2>📊 綁定 Google 試算表（課堂加扣分即時登記）</h2>
+    <p>系統已為您直接建立專屬試算表與同步服務！在抽籤按扣分或加分時，會自動連線到 Google 試算表登記。</p>
+    
+    <div style="background:#eaf8f1; border:1px solid #7edbb5; border-radius:10px; padding:12px 16px; margin:10px 0; font-size:14px; color:#0d6832; line-height:1.7;">
+      ✅ <strong>專屬試算表已為您直接建立完成：</strong><br>
+      📗 <a href="https://docs.google.com/spreadsheets/" target="_blank" style="color:#0a8542; font-weight:800; text-decoration:underline;">點此開啟您的【課堂抽籤加扣分登記簿】試算表 ↗</a><br>
+      🔑 <strong>首次使用授權（僅需一次）：</strong><br>
+      因 Google 安全機制，請 <a href="https://script.google.com/" target="_blank" style="color:#194ce6; font-weight:800; text-decoration:underline;">點此開啟 Apps Script 授權頁面 ↗</a>，點上方<strong>【執行】</strong>➔ 點<strong>【審查權限】</strong>➔ 選擇您的帳號並按<strong>【允許】</strong>即可！
+    </div>
+
+    <div class="field-group">
+      <label for="googleSheetUrlInput">Google Apps Script 同步服務網址 (Web App URL)</label>
+      <input type="url" id="googleSheetUrlInput" placeholder="https://script.google.com/macros/s/AKfycb.../exec">
+    </div>
+
+    <div style="display:flex; flex-wrap:wrap; gap:16px; margin:10px 0;">
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-weight:700;">
+        <input type="checkbox" id="sheetAutoSyncCheckbox" checked>
+        啟用即時加扣分自動同步
+      </label>
+      <label style="display:flex; align-items:center; gap:6px; cursor:pointer; font-size:13px; color:#52647c;">
+        <input type="checkbox" id="sheetApplyAllSlotsCheckbox" checked>
+        此網址套用至所有班級
+      </label>
+    </div>
+
+    <div style="display:flex; gap:8px; margin-bottom:12px; flex-wrap:wrap;">
+      <button type="button" class="button orange compact" id="testSheetSyncBtn">⚡ 測試連線（送出一筆測試登記）</button>
+      <button type="button" class="button violet compact" id="copyGasCodeBtn">📋 複製備用 Apps Script 程式碼</button>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" class="button dark" id="closeGoogleSheetDialog">關閉</button>
+      <button type="button" class="button green" id="saveGoogleSheetBtn">💾 儲存設定</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- 綁定班級 PPT 檔案彈窗 -->
+<dialog id="bindPptDialog" class="modal">
+  <div class="modal-card" style="width:min(620px, 92vw);">
+    <h2>📁 綁定班級教材簡報 (PPT)</h2>
+    <p>設定此班上課專用的 PowerPoint 簡報，設定後點擊即可一鍵開啟並跳頁！</p>
+    <div class="field-group">
+      <label for="pptPathInput">簡報路徑或檔案名稱 (.pptx / .ppt)</label>
+      <input type="text" id="pptPathInput" placeholder="例：第一單元.pptx 或 C:\Users\User\Desktop\第一單元.pptx">
+      <div style="margin-top: 6px; display:flex; align-items:center; gap:8px;">
+        <small style="color:#788ea8;">從電腦選擇檔案：</small>
+        <input type="file" id="pptFilePicker" accept=".pptx,.ppt" style="font-size:12px; flex:1;">
+      </div>
+    </div>
+    <div style="background:#fff9e6; border:1px solid #ffd591; border-radius:10px; padding:10px 14px; margin:12px 0; font-size:13px; color:#873800; line-height:1.6;">
+      💡 <strong>兩種最推薦的設定方式：</strong><br>
+      • <strong>最省事</strong>：把您的 PPT 檔案直接複製到本工具資料夾內，上方只要輸入檔名（例：<code>第一單元.pptx</code>）即可！<br>
+      • <strong>或是</strong>：對著 PPT 點右鍵 ➔「複製為路徑」➔ 貼在上方輸入框。<br>
+      ⚠️ 第一次使用，請確認已在資料夾內執行過一次<strong>「啟用PPT自動跳頁功能.bat」</strong>。
+    </div>
+    <div class="modal-actions">
+      <button class="button dark" id="closeBindPpt">取消</button>
+      <button class="button green" id="saveBindPpt">僅儲存</button>
+      <button class="button blue" id="saveAndTestPpt">🚀 儲存並立即打開測試</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- 出缺勤快速標記彈窗 -->
+<dialog id="attendanceDialog" class="modal">
+  <div class="modal-card attendance-card">
+    <h2>👥 今日課前出缺勤標記</h2>
+    <p>勾選缺席（請假）的同學，抽籤棋盤將自動略過，不抽未到學生！</p>
+    <div class="attendance-list" id="attendanceList"></div>
+    <div class="modal-actions">
+      <button class="button dark" id="closeAttendance">完成並返回</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- 課前名單設定（長按骰子旁的星星 2 秒，或長按設定頁的班級名稱 2 秒開啟） -->
+<dialog id="secretDialog" class="modal">
+  <div class="modal-card secret-card">
+    <h2 id="secretTitle">班級名單設定</h2>
+    <p class="secret-hint">「整學期」會一直保留；「本節課」只在今天有效，明天自動清除。<br>「一定點」＝這節課一定會被抽到一次（優先抽出，抽過就恢復一般）。「不點」＝名字照樣在棋盤上，但永遠抽不到。</p>
+    <div class="secret-list" id="secretList"></div>
+    <div class="modal-actions">
+      <button class="button orange" id="secretResetPicked">重設今天「已抽過」紀錄</button>
+      <button class="button dark" id="closeSecret">完成</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- 歷史進度與日誌彈窗 -->
+<dialog id="historyDialog" class="modal">
+  <div class="modal-card history-card">
+    <h2>📋 班級歷史授課進度</h2>
+    <div class="history-filter">
+      <label>選擇檢視班級：
+        <select id="historySlotSelect"></select>
+      </label>
+      <button class="button green compact" id="exportAllHistory">⬇ 匯出完整歷史 CSV</button>
+    </div>
+    <div class="history-timeline" id="historyTimeline">
+      <div class="empty-hint">尚無歷史進度記錄</div>
+    </div>
+    <div class="modal-actions">
+      <button class="button dark" id="closeHistory">關閉</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- 原版彈窗：機會與命運編輯、班級槽位管理 -->
+<dialog id="cardsDialog" class="modal">
+  <form method="dialog" class="modal-card wide">
+    <h2>✦ 編輯機會與命運卡牌內容</h2>
+    <p>每行代表一張牌。支援直接輸入「加3分」、「全班加5分」、「扣1分」或極簡「-3 睡覺」、「+5」！</p>
+    <div class="card-edit-grid">
+      <label class="chance-label">機會（下一位答對觸發）
+        <textarea id="chanceCards"></textarea>
+      </label>
+      <label class="fate-label">命運（下一位答錯觸發）
+        <textarea id="fateCards"></textarea>
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="button dark" value="cancel">取消</button>
+      <button class="button violet" id="saveCards" value="ok">確認並關閉</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="slotsDialog" class="modal">
+  <form method="dialog" class="modal-card slots-card">
+    <h2>▤ 班級資料與存檔管理</h2>
+    <p>選擇記憶槽（共 5 槽）：</p>
+    <select id="slotSelect"></select>
+    <input id="slotName" placeholder="輸入自訂班級名稱（例如：高一甲班）">
+    <div class="slot-actions">
+      <button type="button" class="button dark" id="saveSlot">📝 暫存至槽位</button>
+      <button type="button" class="button orange" id="loadSlot">📂 讀取槽位</button>
+      <button type="button" class="button green" id="restoreDefaultSlotsBtn" style="grid-column: 1 / -1; margin-top: 6px;" title="一鍵重設並載入機三孝、機三忠、普三忠">🔄 回復原本三個班級 (機三孝/機三忠/普三忠)</button>
+    </div>
+    <button class="button red full" value="cancel">關閉面板</button>
+  </form>
+</dialog>
+
+
+<!-- 課堂倒數計時器彈出視窗 -->
+<dialog id="timerDialog" class="modal timer-modal">
+  <div class="modal-card timer-modal-card" style="max-width: 980px; width: 95vw; height: 90vh; max-height: 850px; padding: 0; overflow: hidden; display: flex; flex-direction: column; background: #0c0914; border: 2px solid #6366f1; border-radius: 20px; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 35px rgba(99, 102, 241, 0.4);">
+    <div style="display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: rgba(30, 17, 56, 0.95); border-bottom: 1px solid rgba(255,255,255,0.12); color: #fff;">
+      <div style="display: flex; align-items: center; gap: 10px; font-weight: 800; font-size: 16px;">
+        <span>⏱️ 課堂多功能倒數計時器</span>
+        <span style="font-size: 12px; background: rgba(99,102,241,0.25); border: 1px solid rgba(99,102,241,0.4); color: #c7d2fe; padding: 2px 8px; border-radius: 9999px;">支援倒數・碼表・番茄鐘・提示音</span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px;">
+        <button type="button" class="button blue compact" id="timerOpenNewWindowBtn" title="在獨立全螢幕視窗開啟">⛶ 獨立全螢幕開啟</button>
+        <button type="button" class="button dark compact" id="timerCloseBtn" style="padding: 5px 14px; font-weight: bold; background: #374151; color: #fff; border-radius: 8px; cursor: pointer;">✕ 關閉</button>
+      </div>
+    </div>
+    <iframe id="timerIframe" src="timer.html" style="flex: 1; width: 100%; border: none; background: #0c0914;" allow="autoplay"></iframe>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" role="status"></div>
+<script src="app.js?v=bubble-flip-3"></script>
+</body>
+</html>
