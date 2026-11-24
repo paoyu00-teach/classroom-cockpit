@@ -1136,3 +1136,17 @@ button { cursor: pointer; border: 0; }
 .secret-row label { font-size: 12px; font-weight: 600; color: #667; display: flex; flex-direction: column; gap: 2px; }
 .secret-row select { font-size: 15px; padding: 6px; min-height: 38px; border-radius: 6px; }
 .secret-row .picked-tag { font-size: 11px; color: #11844c; margin-left: 6px; }
+
+/* ===== 內建 PDF 閱讀器（網頁 / iPad 版） ===== */
+.pdf-viewer { position: fixed; inset: 0; z-index: 9999; background: #111; display: flex; align-items: center; justify-content: center; touch-action: none; -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+.pdf-stage { position: absolute; inset: 0; overflow: hidden; }
+.pdf-stage canvas { position: absolute; left: 0; top: 0; display: block; background: #fff; box-shadow: 0 0 24px rgba(0,0,0,.5); transform-origin: 0 0; will-change: transform; }
+.pdf-fit { min-width: 76px; font-size: 15px; font-variant-numeric: tabular-nums; }
+.pdf-msg { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #ddd; font-size: 20px; text-align: center; line-height: 1.6; pointer-events: none; white-space: pre-line; }
+.pdf-msg:empty { display: none; }
+.pdf-bar { position: absolute; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); display: flex; gap: 8px; padding: 6px; border-radius: 14px; background: rgba(20,20,20,.72); transition: opacity .25s; }
+.pdf-bar.faded { opacity: 0; pointer-events: none; }
+.pdf-btn { white-space: nowrap; min-width: 52px; height: 46px; padding: 0 14px; border: 0; border-radius: 10px; background: rgba(255,255,255,.14); color: #fff; font-size: 18px; font-weight: 700; cursor: pointer; touch-action: manipulation; }
+.pdf-btn:active { background: rgba(255,255,255,.3); }
+.pdf-page { min-width: 96px; font-variant-numeric: tabular-nums; }
+.pdf-close { background: #c2410c; font-size: 15px; white-space: nowrap; }

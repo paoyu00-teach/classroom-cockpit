@@ -1,5 +1,11 @@
 const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAll(s)];
 
+// 網頁 / iPad 版（分享網址）會由打包程式改成 true：教材改用內建 PDF 閱讀器，不呼叫 PowerPoint / Acrobat
+const IS_WEB_BUILD = true;
+function bindKindLabel(prog) {
+  return (IS_WEB_BUILD || /\.pdf$/i.test((prog && prog.pptPath) || '')) ? 'PDF' : 'PPT';
+}
+
 // 預設機會與命運卡牌
 const defaults = {
   chance: [
@@ -358,6 +364,8 @@ function updateProgressBanners() {
 
   $('#bannerClassTitle').textContent = `當前班級：${slotName}`;
   let slideNum = prog.lastSlide || 1;
+  document.querySelectorAll('.ppt-kind').forEach(el => el.textContent = bindKindLabel(prog));
+  if ($('#bindPptBtn')) $('#bindPptBtn').textContent = IS_WEB_BUILD ? (prog.pptPath ? '📁 換一個 PDF' : '📁 選擇 PDF') : '📁 綁定簡報';
   $('#openPptSlideText').textContent = `第 ${slideNum} 頁`;
   $('#gamePptSlideNum').textContent = `${slideNum}`;
   if ($('#setupSlideInput')) $('#setupSlideInput').value = slideNum;
@@ -368,7 +376,8 @@ function updateProgressBanners() {
   if ($('#setupMemoInput')) $('#setupMemoInput').value = memoText;
 
   if (prog.lastProgress) {
-    let pptHint = prog.pptPath ? ` ｜ 📂 <strong>簡報：</strong>已綁定` : ` ｜ ⚠️ <em>未綁定簡報</em>`;
+    let kindName = IS_WEB_BUILD ? 'PDF' : '簡報';
+    let pptHint = prog.pptPath ? ` ｜ 📂 <strong>${kindName}：</strong>已綁定` : ` ｜ ⚠️ <em>未綁定${kindName}</em>`;
     $('#bannerProgressText').innerHTML = `📌 <strong>上次（${prog.lastDate}）進度：</strong> ${prog.lastProgress}${pptHint}`;
     $('#headProgressBadge').textContent = `上次：${prog.lastProgress} (第 ${slideNum} 頁) ${memoText ? '｜ 備忘：' + memoText : ''}`;
     $('#headProgressBadge').title = `下次待辦：${memoText || '無'}（點擊可修改）`;
@@ -1240,6 +1249,17 @@ function launchPpt(slideNum) {
   let prog = getSlotProgressData(currentSlotIndex);
   let path = prog.pptPath;
 
+  // 網頁 / iPad 版：用內建 PDF 閱讀器
+  if (IS_WEB_BUILD) {
+    if (!path) {
+      toast('請先選擇這個班級上課用的 PDF');
+      $('#pdfStorePicker').click();
+      return;
+    }
+    openPdfViewer(slideNum || prog.lastSlide || 1);
+    return;
+  }
+
   if (!path) {
     $('#pptPathInput').value = '';
     $('#bindPptDialog').showModal();
@@ -1256,7 +1276,8 @@ function launchPpt(slideNum) {
   let targetSlide = slideNum || currentInputVal || prog.lastSlide || 1;
   let uri = `pptjump://open?file=${encodeURIComponent(path)}&slide=${targetSlide}`;
 
-  toast(`🚀 正在呼叫 PowerPoint（第 ${targetSlide} 頁）... 若上方彈出「要開啟應用程式嗎？」請按【開啟】！`);
+  let appName = /\.pdf$/i.test(path) ? 'Adobe Acrobat' : 'PowerPoint';
+  toast(`🚀 正在呼叫 ${appName}（第 ${targetSlide} 頁）... 若上方彈出「要開啟應用程式嗎？」請按【開啟】！`);
 
   // 使用隱藏 <a> 觸發以確保相容性
   let a = document.createElement('a');
@@ -1282,13 +1303,13 @@ function quickSaveSlideProgress(slideNumber) {
     progress: `授課至第 ${s} 頁`,
     slide: s,
     homework: progData.nextHomework || '',
-    remarks: 'PPT 快捷儲存進度',
+    remarks: `${bindKindLabel(progData)} 快捷儲存進度`,
     scoresSummary: { ...todayScores }
   });
 
   saveSlotProgressData(currentSlotIndex, progData);
   updateProgressBanners();
-  toast(`🎉 已成功儲存【${currentClassName}】進度至第 ${s} 頁！下次開啟 PPT 將直接從第 ${s} 頁開始。`);
+  toast(`🎉 已成功儲存【${currentClassName}】進度至第 ${s} 頁！下次開啟${bindKindLabel(progData)}將直接從第 ${s} 頁開始。`);
 }
 
 $('#openPptBtn').onclick = () => launchPpt();
@@ -1309,6 +1330,7 @@ $('#gameSlideInput')?.addEventListener('keydown', (e) => {
 });
 
 $('#bindPptBtn').onclick = () => {
+  if (IS_WEB_BUILD) { $('#pdfStorePicker').click(); return; }
   let prog = getSlotProgressData(currentSlotIndex);
   $('#pptPathInput').value = prog.pptPath || '';
   $('#bindPptDialog').showModal();
@@ -1347,7 +1369,7 @@ $('#closeBindPpt').onclick = () => $('#bindPptDialog').close();
 function savePptBinding() {
   let p = $('#pptPathInput').value.trim().replace(/^["']|["']$/g, '');
   if (!p) {
-    toast('請輸入 PPT 完整檔案路徑或檔案名稱');
+    toast('請輸入 PPT 或 PDF 的完整檔案路徑或檔案名稱');
     return null;
   }
   let prog = getSlotProgressData(currentSlotIndex);
@@ -1360,7 +1382,7 @@ function savePptBinding() {
 $('#saveBindPpt').onclick = () => {
   if (savePptBinding()) {
     $('#bindPptDialog').close();
-    toast('已成功儲存此班 PPT 綁定！點擊按鈕即可一鍵跳頁。');
+    toast(`已成功儲存此班 ${bindKindLabel(getSlotProgressData(currentSlotIndex))} 綁定！點擊按鈕即可一鍵跳頁。`);
   }
 };
 
@@ -1368,6 +1390,369 @@ $('#saveAndTestPpt').onclick = () => {
   if (savePptBinding()) {
     $('#bindPptDialog').close();
     launchPpt();
+  }
+};
+
+// ============================================================
+// 內建 PDF 閱讀器（網頁 / iPad 版）：PDF 存在這台裝置裡，翻頁自動記住頁數
+// ============================================================
+const PDFJS_BASE = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+let pdfjsLoading = null;
+function loadPdfJs() {
+  if (window.pdfjsLib) return Promise.resolve(window.pdfjsLib);
+  if (!pdfjsLoading) {
+    pdfjsLoading = new Promise((resolve, reject) => {
+      let s = document.createElement('script');
+      s.src = PDFJS_BASE + 'pdf.min.js';
+      s.onload = () => {
+        window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + 'pdf.worker.min.js';
+        resolve(window.pdfjsLib);
+      };
+      s.onerror = () => { pdfjsLoading = null; s.remove(); reject(new Error('pdfjs')); };
+      document.head.appendChild(s);
+    });
+  }
+  return pdfjsLoading;
+}
+
+function pdfDb() {
+  return new Promise((resolve, reject) => {
+    let r = indexedDB.open('cockpit-pdf', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('files');
+    r.onsuccess = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+  });
+}
+async function pdfStoreGet(idx) {
+  let db = await pdfDb();
+  return new Promise((resolve, reject) => {
+    let q = db.transaction('files', 'readonly').objectStore('files').get('slot-' + idx);
+    q.onsuccess = () => resolve(q.result || null);
+    q.onerror = () => reject(q.error);
+  });
+}
+async function pdfStorePut(idx, rec) {
+  let db = await pdfDb();
+  return new Promise((resolve, reject) => {
+    let tx = db.transaction('files', 'readwrite');
+    tx.objectStore('files').put(rec, 'slot-' + idx);
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+    tx.onabort = () => reject(tx.error);
+  });
+}
+
+let pv = {
+  doc: null, docSlot: null, docName: '', page: 1, openedAt: 1, total: 0,
+  renderToken: 0, saveTimer: null, fadeTimer: null, hiresTimer: null,
+  baseW: 0, baseH: 0, zoom: 1, renderZoom: 1, renderTarget: 1, x: 0, y: 0, canvas: null
+};
+const PV_MAX_ZOOM = 5;
+const PV_MAX_PIXELS = 12e6; // iPad 的畫布有大小上限，放大時降低解析度避免當掉
+
+function pvMsg(text) { $('#pdfMsg').textContent = text || ''; }
+function pvShowBar() {
+  $('#pdfBar').classList.remove('faded');
+  clearTimeout(pv.fadeTimer);
+  pv.fadeTimer = setTimeout(() => $('#pdfBar').classList.add('faded'), 3500);
+}
+function pvStageSize() {
+  let s = $('#pdfStage');
+  return [s.clientWidth || window.innerWidth, s.clientHeight || window.innerHeight];
+}
+function pvClamp() {
+  let [W, H] = pvStageSize();
+  let cw = pv.baseW * pv.zoom, ch = pv.baseH * pv.zoom;
+  pv.x = cw <= W ? (W - cw) / 2 : Math.min(0, Math.max(W - cw, pv.x));
+  pv.y = ch <= H ? (H - ch) / 2 : Math.min(0, Math.max(H - ch, pv.y));
+}
+function pvApply() {
+  pvClamp();
+  if (pv.canvas) pv.canvas.style.transform = `translate(${pv.x}px, ${pv.y}px) scale(${pv.zoom / pv.renderZoom})`;
+  let zb = $('#pdfFit');
+  if (zb) zb.textContent = pv.zoom > 1.01 ? `${Math.round(pv.zoom * 100)}%` : '全頁';
+}
+function pvScheduleHires() {
+  clearTimeout(pv.hiresTimer);
+  pv.hiresTimer = setTimeout(() => {
+    if (Math.abs(pv.zoom - pv.renderTarget) > 0.05) pvRender(true);
+  }, 250);
+}
+function pvSetZoom(z, cx, cy) {
+  if (!pv.doc) return;
+  let [W, H] = pvStageSize();
+  if (cx == null) { cx = W / 2; cy = H / 2; }
+  z = Math.min(PV_MAX_ZOOM, Math.max(1, z));
+  let k = z / pv.zoom;
+  pv.x = cx - (cx - pv.x) * k;
+  pv.y = cy - (cy - pv.y) * k;
+  pv.zoom = z;
+  pvApply();
+  pvScheduleHires();
+}
+
+async function openPdfViewer(startPage) {
+  let viewer = $('#pdfViewer');
+  viewer.classList.remove('hidden');
+  viewer.setAttribute('aria-hidden', 'false');
+  $('#pdfStage').replaceChildren();
+  pv.canvas = null;
+  pvMsg('PDF 載入中…');
+  pvShowBar();
+  try {
+    let rec = await pdfStoreGet(currentSlotIndex);
+    if (!rec || !rec.data) {
+      pvMsg('這台裝置裡找不到這個班級的 PDF。\n請關閉後按「📁 選擇 PDF」重新選一次。');
+      return;
+    }
+    if (!pv.doc || pv.docSlot !== currentSlotIndex || pv.docName !== rec.name) {
+      let lib = await loadPdfJs();
+      if (pv.doc) { try { pv.doc.destroy(); } catch {} }
+      pv.doc = await lib.getDocument({ data: new Uint8Array(rec.data.slice(0)) }).promise;
+      pv.docSlot = currentSlotIndex;
+      pv.docName = rec.name;
+    }
+    pv.total = pv.doc.numPages;
+    pv.page = Math.min(Math.max(1, parseInt(startPage) || 1), pv.total);
+    pv.openedAt = pv.page;
+    pvMsg('');
+    await pvRender(false);
+  } catch (e) {
+    pvMsg(String(e && e.message) === 'pdfjs'
+      ? 'PDF 閱讀器載入失敗，請確認網路連線後再試一次。'
+      : 'PDF 無法開啟，請確認檔案沒有損壞，或重新選擇 PDF。');
+  }
+}
+
+// keepView=false：換頁，回到全頁；keepView=true：保持目前的放大位置，只把畫面重新畫清楚
+async function pvRender(keepView) {
+  if (!pv.doc) return;
+  let token = ++pv.renderToken;
+  let pageNo = pv.page;
+  $('#pdfPageInfo').textContent = `${pageNo} / ${pv.total}`;
+  let page = await pv.doc.getPage(pageNo);
+  if (token !== pv.renderToken) return;
+  let [W, H] = pvStageSize();
+  let base = page.getViewport({ scale: 1 });
+  let fit = Math.min(W / base.width, H / base.height);
+  pv.baseW = base.width * fit;
+  pv.baseH = base.height * fit;
+  if (!keepView) pv.zoom = 1;
+  let rz = pv.zoom;
+  let dpr = Math.min(window.devicePixelRatio || 1, 2);
+  let px = (pv.baseW * rz * dpr) * (pv.baseH * rz * dpr);
+  let cap = px > PV_MAX_PIXELS ? Math.sqrt(PV_MAX_PIXELS / px) : 1;
+  let vp = page.getViewport({ scale: fit * rz * dpr * cap });
+  let canvas = document.createElement('canvas');
+  canvas.width = Math.floor(vp.width);
+  canvas.height = Math.floor(vp.height);
+  canvas.style.width = (pv.baseW * rz) + 'px';
+  canvas.style.height = (pv.baseH * rz) + 'px';
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+  if (token !== pv.renderToken) return;
+  pv.renderZoom = rz;
+  pv.renderTarget = rz;
+  pv.canvas = canvas;
+  $('#pdfStage').replaceChildren(canvas);
+  pvApply();
+}
+
+function pvAutoSave() {
+  clearTimeout(pv.saveTimer);
+  let slot = pv.docSlot, page = pv.page;
+  pv.saveTimer = setTimeout(() => {
+    let prog = getSlotProgressData(slot);
+    prog.lastSlide = page;
+    saveSlotProgressData(slot, prog);
+    if (slot === currentSlotIndex) updateProgressBanners();
+  }, 600);
+}
+
+function pvGo(delta) {
+  if (!pv.doc) return;
+  let next = Math.min(Math.max(1, pv.page + delta), pv.total);
+  if (next === pv.page) return;
+  pv.page = next;
+  pvRender(false);
+  pvAutoSave();
+}
+
+function closePdfViewer() {
+  let viewer = $('#pdfViewer');
+  if (viewer.classList.contains('hidden')) return;
+  viewer.classList.add('hidden');
+  viewer.setAttribute('aria-hidden', 'true');
+  clearTimeout(pv.saveTimer);
+  if (!pv.doc || pv.docSlot !== currentSlotIndex) return;
+  if (pv.page !== pv.openedAt) {
+    quickSaveSlideProgress(pv.page);
+  } else {
+    let prog = getSlotProgressData(pv.docSlot);
+    prog.lastSlide = pv.page;
+    saveSlotProgressData(pv.docSlot, prog);
+    updateProgressBanners();
+  }
+}
+
+$('#pdfPrev').onclick = (e) => { e.stopPropagation(); pvGo(-1); pvShowBar(); };
+$('#pdfNext').onclick = (e) => { e.stopPropagation(); pvGo(1); pvShowBar(); };
+$('#pdfZoomIn').onclick = (e) => { e.stopPropagation(); pvSetZoom(pv.zoom * 1.5); pvShowBar(); };
+$('#pdfZoomOut').onclick = (e) => { e.stopPropagation(); pvSetZoom(pv.zoom / 1.5); pvShowBar(); };
+$('#pdfFit').onclick = (e) => { e.stopPropagation(); pvSetZoom(1); pvShowBar(); };
+$('#pdfClose').onclick = (e) => { e.stopPropagation(); closePdfViewer(); };
+$('#pdfPageInfo').onclick = (e) => {
+  e.stopPropagation();
+  if (!pv.doc) return;
+  let v = prompt(`跳到第幾頁？（1–${pv.total}）`, pv.page);
+  let n = parseInt(v);
+  if (n) pvGo(Math.min(Math.max(1, n), pv.total) - pv.page);
+};
+$('#pdfBar').addEventListener('pointerdown', e => e.stopPropagation());
+
+// 手勢：
+//  全頁時：點右邊三分之一下一頁、點左邊上一頁、左右滑動翻頁；點中間顯示按鈕，點中間兩下放大。
+//  兩指開合：放大縮小。放大後：一指拖曳移動畫面，點兩下回到全頁（放大時點一下不會翻頁）。
+(() => {
+  let el = $('#pdfViewer');
+  let pts = new Map();
+  let g = null;
+  let lastTap = 0, lastTapX = 0, lastTapY = 0, tapTimer = null;
+  const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+
+  el.addEventListener('pointerdown', e => {
+    if (!pv.doc) return;
+    try { el.setPointerCapture(e.pointerId); } catch {}
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pts.size === 1) {
+      g = { mode: 'one', sx: e.clientX, sy: e.clientY, ox: pv.x, oy: pv.y, moved: false };
+    } else if (pts.size === 2) {
+      let [a, b] = [...pts.values()];
+      g = { mode: 'pinch', d0: dist(a, b) || 1, z0: pv.zoom, mx: (a.x + b.x) / 2, my: (a.y + b.y) / 2, ox: pv.x, oy: pv.y };
+      clearTimeout(tapTimer);
+    }
+  });
+
+  el.addEventListener('pointermove', e => {
+    if (!g || !pts.has(e.pointerId)) return;
+    pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (g.mode === 'pinch' && pts.size >= 2) {
+      let [a, b] = [...pts.values()];
+      let z = Math.min(PV_MAX_ZOOM, Math.max(1, g.z0 * dist(a, b) / g.d0));
+      let k = z / g.z0;
+      let mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      pv.zoom = z;
+      pv.x = mx - (g.mx - g.ox) * k;
+      pv.y = my - (g.my - g.oy) * k;
+      pvApply();
+    } else if (g.mode === 'one') {
+      let dx = e.clientX - g.sx, dy = e.clientY - g.sy;
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) g.moved = true;
+      if (pv.zoom > 1.01) {
+        pv.x = g.ox + dx;
+        pv.y = g.oy + dy;
+        pvApply();
+      }
+    }
+  });
+
+  function handleTap(x, y) {
+    let now = Date.now();
+    let isDouble = now - lastTap < 320 && Math.hypot(x - lastTapX, y - lastTapY) < 50;
+    if (pv.zoom > 1.01) {
+      if (isDouble) { clearTimeout(tapTimer); lastTap = 0; pvSetZoom(1); return; }
+      lastTap = now; lastTapX = x; lastTapY = y;
+      clearTimeout(tapTimer);
+      tapTimer = setTimeout(pvShowBar, 320);
+      return;
+    }
+    let r = x / window.innerWidth;
+    if (r < 0.33) { lastTap = 0; pvGo(-1); return; }
+    if (r > 0.67) { lastTap = 0; pvGo(1); return; }
+    if (isDouble) { clearTimeout(tapTimer); lastTap = 0; pvSetZoom(2.5, x, y); return; }
+    lastTap = now; lastTapX = x; lastTapY = y;
+    clearTimeout(tapTimer);
+    tapTimer = setTimeout(pvShowBar, 320);
+  }
+
+  function end(e) {
+    if (!pts.has(e.pointerId)) return;
+    pts.delete(e.pointerId);
+    if (!g) return;
+    if (g.mode === 'pinch') {
+      if (pts.size === 1) {
+        let p = [...pts.values()][0];
+        g = { mode: 'one', sx: p.x, sy: p.y, ox: pv.x, oy: pv.y, moved: true };
+      } else if (pts.size === 0) {
+        g = null;
+      }
+      pvScheduleHires();
+      return;
+    }
+    let gg = g;
+    g = null;
+    if (e.type === 'pointercancel') return;
+    let dx = e.clientX - gg.sx, dy = e.clientY - gg.sy;
+    if (pv.zoom > 1.01) {
+      if (!gg.moved) handleTap(e.clientX, e.clientY);
+      return;
+    }
+    if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) { pvGo(dx < 0 ? 1 : -1); return; }
+    if (gg.moved) return;
+    handleTap(e.clientX, e.clientY);
+  }
+  el.addEventListener('pointerup', end);
+  el.addEventListener('pointercancel', end);
+
+  // 筆電：Ctrl＋滾輪（或觸控板兩指開合）放大縮小；放大後滾輪移動畫面
+  el.addEventListener('wheel', e => {
+    if (!pv.doc) return;
+    e.preventDefault();
+    if (e.ctrlKey) {
+      pvSetZoom(pv.zoom * Math.exp(-e.deltaY * 0.01), e.clientX, e.clientY);
+    } else if (pv.zoom > 1.01) {
+      pv.x -= e.deltaX;
+      pv.y -= e.deltaY;
+      pvApply();
+    }
+  }, { passive: false });
+})();
+
+document.addEventListener('keydown', e => {
+  if ($('#pdfViewer').classList.contains('hidden')) return;
+  if (['ArrowRight', 'ArrowDown', 'PageDown', ' '].includes(e.key)) { e.preventDefault(); pvGo(1); }
+  else if (['ArrowLeft', 'ArrowUp', 'PageUp'].includes(e.key)) { e.preventDefault(); pvGo(-1); }
+  else if (e.key === '+' || e.key === '=') { e.preventDefault(); pvSetZoom(pv.zoom * 1.5); }
+  else if (e.key === '-') { e.preventDefault(); pvSetZoom(pv.zoom / 1.5); }
+  else if (e.key === '0') { e.preventDefault(); pvSetZoom(1); }
+  else if (e.key === 'Escape') { e.preventDefault(); closePdfViewer(); }
+});
+window.addEventListener('resize', () => {
+  if (!$('#pdfViewer').classList.contains('hidden')) pvRender(true);
+});
+
+$('#pdfStorePicker').onchange = async (e) => {
+  let file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
+    toast('請選擇 PDF 檔案');
+    return;
+  }
+  let slot = currentSlotIndex;
+  try {
+    toast('正在存入 PDF…');
+    let data = await file.arrayBuffer();
+    await pdfStorePut(slot, { name: file.name, size: file.size, savedAt: Date.now(), data });
+    try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
+    let prog = getSlotProgressData(slot);
+    if (prog.pptPath !== file.name) prog.lastSlide = 1;
+    prog.pptPath = file.name;
+    saveSlotProgressData(slot, prog);
+    if (pv.docSlot === slot) { pv.doc = null; pv.docSlot = null; }
+    updateProgressBanners();
+    toast(`已存入【${currentClassName}】的 PDF：${file.name}。按「🚀 開啟 PDF」就能上課。`);
+  } catch {
+    toast('PDF 存入失敗，可能是裝置空間不足，請換小一點的檔案再試。');
   }
 };
 
@@ -1494,7 +1879,7 @@ function doGet(e) {
   return ContentService.createTextOutput("ClassroomCockpit Google 試算表即時記點同步服務正常運作中！");
 }`;
 
-const DEFAULT_GSHEET_SYNC_URL = ''; // iPad 版：試算表網址由「匯入全部備份」帶入
+const DEFAULT_GSHEET_SYNC_URL = ''; // 網頁版：試算表網址由「匯入全部備份」帶入或自行設定
 
 function getGoogleSheetConfig() {
   let globalUrl = localStorage.getItem('cockpit-gsheet-url') || DEFAULT_GSHEET_SYNC_URL;
@@ -1974,7 +2359,7 @@ if (localStorage.getItem('draw-slot-0')) {
 // ==========================================
 // 預設三個原始班級資料 (機三孝 / 機三忠 / 普三忠)
 // ==========================================
-const ORIGINAL_THREE_CLASSES = []; // iPad 版不內建學生名單，請用「匯入全部備份」
+const ORIGINAL_THREE_CLASSES = []; // 網頁版不內建學生名單
 const ORIGINAL_PROGRESS_DATA = {};
 
 function restoreOriginalThreeClasses(force = false) {

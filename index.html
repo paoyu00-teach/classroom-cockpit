@@ -11,8 +11,8 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="課堂控台">
   <style>
-    /* iPad 版：PPT 自動開啟需要 Windows，iPad 上隱藏 */
-    #openPptBtn, #gameOpenPptBtn, #bindPptBtn, #restoreDefaultSlotsBtn { display: none !important; }
+    /* 網頁版：沒有內建班級可回復 */
+    #restoreDefaultSlotsBtn { display: none !important; }
   </style>
 </head>
 <body>
@@ -49,7 +49,7 @@
       </div>
     </div>
     <div class="banner-actions">
-      <button class="button green" id="openPptBtn">🚀 開啟 PPT (<span id="openPptSlideText">第 1 頁</span>)</button>
+      <button class="button green" id="openPptBtn">🚀 開啟 <span class="ppt-kind">PPT</span> (<span id="openPptSlideText">第 1 頁</span>)</button>
       <div class="quick-slide-box">
         <span class="slide-label">上到第</span>
         <input type="number" id="setupSlideInput" min="1" max="999" value="1" title="輸入今日授課結束頁數">
@@ -114,7 +114,7 @@
       <div class="head-left">
         <strong id="currentClassTag">⊗ 課堂抽籤</strong>
         <span class="head-progress-badge" id="headProgressBadge">上次進度載入中</span>
-        <button class="button green compact" id="gameOpenPptBtn">🚀 開啟 PPT (<span id="gamePptSlideNum">1</span>)</button>
+        <button class="button green compact" id="gameOpenPptBtn">🚀 開啟 <span class="ppt-kind">PPT</span> (<span id="gamePptSlideNum">1</span>)</button>
         <div class="quick-slide-box compact-box">
           <span class="slide-label">第</span>
           <input type="number" id="gameSlideInput" min="1" max="999" value="1" title="輸入今日授課結束頁數">
@@ -351,20 +351,20 @@
 <!-- 綁定班級 PPT 檔案彈窗 -->
 <dialog id="bindPptDialog" class="modal">
   <div class="modal-card" style="width:min(620px, 92vw);">
-    <h2>📁 綁定班級教材簡報 (PPT)</h2>
-    <p>設定此班上課專用的 PowerPoint 簡報，設定後點擊即可一鍵開啟並跳頁！</p>
+    <h2>📁 綁定班級教材（PPT 或 PDF）</h2>
+    <p>設定此班上課專用的 PowerPoint 簡報或 PDF 檔，設定後點擊即可一鍵開啟並跳頁！PDF 會用 Adobe Acrobat 開啟。</p>
     <div class="field-group">
-      <label for="pptPathInput">簡報路徑或檔案名稱 (.pptx / .ppt)</label>
-      <input type="text" id="pptPathInput" placeholder="例：第一單元.pptx 或 C:\Users\User\Desktop\第一單元.pptx">
+      <label for="pptPathInput">檔案路徑或檔案名稱 (.pptx / .ppt / .pdf)</label>
+      <input type="text" id="pptPathInput" placeholder="例：第一單元.pptx、講義.pdf 或 C:\Users\User\Desktop\第一單元.pptx">
       <div style="margin-top: 6px; display:flex; align-items:center; gap:8px;">
         <small style="color:#788ea8;">從電腦選擇檔案：</small>
-        <input type="file" id="pptFilePicker" accept=".pptx,.ppt" style="font-size:12px; flex:1;">
+        <input type="file" id="pptFilePicker" accept=".pptx,.ppt,.pdf" style="font-size:12px; flex:1;">
       </div>
     </div>
     <div style="background:#fff9e6; border:1px solid #ffd591; border-radius:10px; padding:10px 14px; margin:12px 0; font-size:13px; color:#873800; line-height:1.6;">
       💡 <strong>兩種最推薦的設定方式：</strong><br>
-      • <strong>最省事</strong>：把您的 PPT 檔案直接複製到本工具資料夾內，上方只要輸入檔名（例：<code>第一單元.pptx</code>）即可！<br>
-      • <strong>或是</strong>：對著 PPT 點右鍵 ➔「複製為路徑」➔ 貼在上方輸入框。<br>
+      • <strong>最省事</strong>：把您的 PPT 或 PDF 檔案直接複製到本工具資料夾內，上方只要輸入檔名（例：<code>第一單元.pptx</code>）即可！<br>
+      • <strong>或是</strong>：對著檔案點右鍵 ➔「複製為路徑」➔ 貼在上方輸入框。<br>
       ⚠️ 第一次使用，請確認已在資料夾內執行過一次<strong>「啟用PPT自動跳頁功能.bat」</strong>。
     </div>
     <div class="modal-actions">
@@ -473,6 +473,21 @@
 </dialog>
 
 <div id="toast" class="toast" role="status"></div>
-<script src="app.js?v=bubble-flip-3"></script>
+<!-- 內建 PDF 閱讀器（網頁 / iPad 版使用） -->
+<input type="file" id="pdfStorePicker" accept="application/pdf,.pdf" hidden>
+<div id="pdfViewer" class="pdf-viewer hidden" aria-hidden="true">
+  <div id="pdfStage" class="pdf-stage"></div>
+  <div id="pdfMsg" class="pdf-msg">PDF 載入中…</div>
+  <div id="pdfBar" class="pdf-bar">
+    <button type="button" class="pdf-btn" id="pdfPrev" aria-label="上一頁">◀</button>
+    <button type="button" class="pdf-btn pdf-page" id="pdfPageInfo" title="點一下可輸入頁數">– / –</button>
+    <button type="button" class="pdf-btn" id="pdfNext" aria-label="下一頁">▶</button>
+    <button type="button" class="pdf-btn" id="pdfZoomOut" aria-label="縮小">－</button>
+    <button type="button" class="pdf-btn pdf-fit" id="pdfFit" title="回到整頁">全頁</button>
+    <button type="button" class="pdf-btn" id="pdfZoomIn" aria-label="放大">＋</button>
+    <button type="button" class="pdf-btn pdf-close" id="pdfClose">✕ 關閉（記住這頁）</button>
+  </div>
+</div>
+<script src="app.js?v=pdf-1"></script>
 </body>
 </html>
