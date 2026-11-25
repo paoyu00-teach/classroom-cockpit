@@ -1150,3 +1150,24 @@ button { cursor: pointer; border: 0; }
 .pdf-btn:active { background: rgba(255,255,255,.3); }
 .pdf-page { min-width: 96px; font-variant-numeric: tabular-nums; }
 .pdf-close { background: #c2410c; font-size: 15px; white-space: nowrap; }
+
+/* ===== 新手引導（網頁 / iPad 版） ===== */
+.newbie-guide { margin: 0 0 16px; padding: 18px 20px; border: 3px solid #f59e0b; border-radius: 18px; background: #fffbeb; color: #451a03; box-shadow: 0 6px 20px rgba(245,158,11,.18); }
+.ng-head { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 20px; }
+.ng-skip { border: 0; background: none; color: #92400e; text-decoration: underline; font-size: 14px; cursor: pointer; padding: 6px; }
+.ng-tip { margin: 12px 0 0; padding: 12px 14px; border-radius: 12px; background: #fee2e2; color: #7f1d1d; font-size: 15px; line-height: 1.7; }
+.ng-steps { list-style: none; margin: 14px 0 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+.ng-steps li { display: flex; gap: 12px; align-items: flex-start; padding: 14px; border-radius: 14px; background: #fff; border: 2px solid #fde68a; }
+.ng-steps li > div { display: flex; flex-direction: column; gap: 8px; min-width: 0; flex: 1; }
+.ng-steps li b { font-size: 17px; }
+.ng-steps li small { color: #78350f; font-size: 13.5px; line-height: 1.6; }
+.ng-steps li .button { align-self: flex-start; font-size: 16px; padding: 10px 16px; }
+.ng-num { flex: none; width: 34px; height: 34px; border-radius: 50%; background: #f59e0b; color: #fff; font-weight: 800; font-size: 18px; display: flex; align-items: center; justify-content: center; }
+.ng-steps li.done { border-color: #86efac; background: #f0fdf4; }
+.ng-steps li.done .ng-num { background: #16a34a; font-size: 0; }
+.ng-steps li.done .ng-num::after { content: "✓"; font-size: 18px; }
+.ng-steps li.current { border-color: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,.25); }
+.ng-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.ng-row input { flex: 1; min-width: 120px; padding: 10px 12px; font-size: 16px; border: 2px solid #fcd34d; border-radius: 10px; }
+.ng-foot { margin: 12px 0 0; font-size: 14px; color: #92400e; }
+textarea#names.ng-highlight { outline: 4px solid #f59e0b; outline-offset: 2px; }

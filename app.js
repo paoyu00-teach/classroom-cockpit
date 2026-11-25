@@ -3,7 +3,9 @@ const $ = s => document.querySelector(s), $$ = s => [...document.querySelectorAl
 // 網頁 / iPad 版（分享網址）會由打包程式改成 true：教材改用內建 PDF 閱讀器，不呼叫 PowerPoint / Acrobat
 const IS_WEB_BUILD = true;
 function bindKindLabel(prog) {
-  return (IS_WEB_BUILD || /\.pdf$/i.test((prog && prog.pptPath) || '')) ? 'PDF' : 'PPT';
+  let p = (prog && prog.pptPath) || '';
+  if (IS_WEB_BUILD) return /\.pptx?$/i.test(p) ? 'PPT' : 'PDF';
+  return /\.pdf$/i.test(p) ? 'PDF' : 'PPT';
 }
 
 // 預設機會與命運卡牌
@@ -337,7 +339,7 @@ function stopFireworks() {
 // 班級進度與歷史管理 (Progress Storage)
 function getSlotProgressData(idx) {
   let raw = localStorage.getItem('draw-slot-' + idx + '-progress');
-  if (!raw) return { history: [], lastProgress: '', nextHomework: '', lastDate: '', lastSlide: 1, pptPath: '' };
+  if (!raw) return { history: [], lastProgress: '', nextHomework: '', lastDate: '', lastSlide: 1, pptPath: '', memoDate: '', memoSeenDate: '' };
   try {
     let d = JSON.parse(raw);
     return {
@@ -346,10 +348,12 @@ function getSlotProgressData(idx) {
       nextHomework: d.nextHomework || '',
       lastDate: d.lastDate || '',
       lastSlide: d.lastSlide || 1,
-      pptPath: d.pptPath || ''
+      pptPath: d.pptPath || '',
+      memoDate: d.memoDate || '',
+      memoSeenDate: d.memoSeenDate || ''
     };
   } catch {
-    return { history: [], lastProgress: '', nextHomework: '', lastDate: '', lastSlide: 1, pptPath: '' };
+    return { history: [], lastProgress: '', nextHomework: '', lastDate: '', lastSlide: 1, pptPath: '', memoDate: '', memoSeenDate: '' };
   }
 }
 
@@ -357,7 +361,41 @@ function saveSlotProgressData(idx, data) {
   localStorage.setItem('draw-slot-' + idx + '-progress', JSON.stringify(data));
 }
 
+// ------------------------------------------------------------
+// 備忘錄只保留到下一次上課：
+//   寫下備忘的那天 = memoDate。之後哪一天再上這個班，打開時還看得到；
+//   一按「開始上課（生成地圖）」、開啟 PPT／PDF、儲存進度，備忘就清掉。
+//   寫下的同一天（例如同一班連上兩節）不會清。
+// ------------------------------------------------------------
+function memoMarkWritten(prog) {
+  prog.memoDate = prog.nextHomework ? todayStr() : '';
+  prog.memoSeenDate = '';
+}
+function memoMarkClassHeld(idx) {
+  let p = getSlotProgressData(idx);
+  if (p.nextHomework && p.memoDate && todayStr() > p.memoDate) {
+    p.nextHomework = '';
+    p.memoDate = '';
+    p.memoSeenDate = '';
+    saveSlotProgressData(idx, p);
+    if (idx === currentSlotIndex) updateProgressBanners();
+  }
+}
+function memoExpire(idx) {
+  let p = getSlotProgressData(idx);
+  let changed = false;
+  if (p.nextHomework && !p.memoDate) { p.memoDate = todayStr(); changed = true; } // 舊資料：從今天開始算
+  if (p.nextHomework && p.memoSeenDate && todayStr() > p.memoSeenDate) {
+    p.nextHomework = '';
+    p.memoDate = '';
+    p.memoSeenDate = '';
+    changed = true;
+  }
+  if (changed) saveSlotProgressData(idx, p);
+}
+
 function updateProgressBanners() {
+  memoExpire(currentSlotIndex);
   let prog = getSlotProgressData(currentSlotIndex);
   let slotName = localStorage.getItem('draw-slot-' + currentSlotIndex + '-name') || `班級 ${+currentSlotIndex + 1}`;
   currentClassName = slotName;
@@ -365,7 +403,7 @@ function updateProgressBanners() {
   $('#bannerClassTitle').textContent = `當前班級：${slotName}`;
   let slideNum = prog.lastSlide || 1;
   document.querySelectorAll('.ppt-kind').forEach(el => el.textContent = bindKindLabel(prog));
-  if ($('#bindPptBtn')) $('#bindPptBtn').textContent = IS_WEB_BUILD ? (prog.pptPath ? '📁 換一個 PDF' : '📁 選擇 PDF') : '📁 綁定簡報';
+  if ($('#bindPptBtn')) $('#bindPptBtn').textContent = IS_WEB_BUILD ? (prog.pptPath ? '📁 換檔案' : '📁 選擇 PDF／PPT') : '📁 綁定簡報';
   $('#openPptSlideText').textContent = `第 ${slideNum} 頁`;
   $('#gamePptSlideNum').textContent = `${slideNum}`;
   if ($('#setupSlideInput')) $('#setupSlideInput').value = slideNum;
@@ -376,7 +414,7 @@ function updateProgressBanners() {
   if ($('#setupMemoInput')) $('#setupMemoInput').value = memoText;
 
   if (prog.lastProgress) {
-    let kindName = IS_WEB_BUILD ? 'PDF' : '簡報';
+    let kindName = IS_WEB_BUILD ? (prog.pptPath ? bindKindLabel(prog) : '教材') : '簡報';
     let pptHint = prog.pptPath ? ` ｜ 📂 <strong>${kindName}：</strong>已綁定` : ` ｜ ⚠️ <em>未綁定${kindName}</em>`;
     $('#bannerProgressText').innerHTML = `📌 <strong>上次（${prog.lastDate}）進度：</strong> ${prog.lastProgress}${pptHint}`;
     $('#headProgressBadge').textContent = `上次：${prog.lastProgress} (第 ${slideNum} 頁) ${memoText ? '｜ 備忘：' + memoText : ''}`;
@@ -390,6 +428,7 @@ function updateProgressBanners() {
   $('#currentClassTag').textContent = `⊗ 課堂抽籤 · ${slotName}`;
   $('#checkoutClassName').value = slotName;
   updateSheetSyncUI();
+  updateNewbieGuide();
 }
 
 // 資料讀取與載入
@@ -432,9 +471,13 @@ function renderQuick() {
     b.title = '切換至 ' + b.textContent;
     b.onclick = () => {
       currentSlotIndex = i;
+      ngJustSaved = false;
       if (localStorage.getItem('draw-slot-' + i)) {
         loadSlot(i);
       } else {
+        // 還沒存過的班：清空名單框，避免把上一班的名單誤存成這一班
+        $('#names').value = '';
+        if (typeof ngJustSaved !== 'undefined') ngJustSaved = false;
         updateProgressBanners();
         renderQuick();
       }
@@ -1152,8 +1195,9 @@ function quickEditMemo() {
   let prog = getSlotProgressData(currentSlotIndex);
   let oldMemo = prog.nextHomework || '';
   let newMemo = prompt(`【${currentClassName}】輸入／修改備忘事項（下次待辦或作業）：`, oldMemo);
-  if (newMemo !== null) {
+  if (newMemo !== null && newMemo.trim() !== oldMemo) {
     prog.nextHomework = newMemo.trim();
+    memoMarkWritten(prog);
     saveSlotProgressData(currentSlotIndex, prog);
     updateProgressBanners();
     toast(`已更新【${currentClassName}】備忘事項！`);
@@ -1167,7 +1211,12 @@ function openCheckoutDialog() {
   updateProgressBanners();
   let prog = getSlotProgressData(currentSlotIndex);
   $('#todayProgressInput').value = '';
-  $('#nextHomeworkInput').value = prog.nextHomework || '';
+  // 今天寫的備忘照樣帶入；之前寫的備忘已經用過了，不再帶入（不填就會清掉），只用淡字提示
+  let memoFromToday = prog.nextHomework && prog.memoDate === todayStr();
+  $('#nextHomeworkInput').value = memoFromToday ? prog.nextHomework : '';
+  $('#nextHomeworkInput').placeholder = (!memoFromToday && prog.nextHomework)
+    ? `上次的備忘：${prog.nextHomework}（不填會清掉，需要的話請重新輸入）`
+    : '例：習作 P.15~16、下次抽考單字';
   $('#todayRemarksInput').value = '';
 
   // 渲染今日學生記點清單
@@ -1233,7 +1282,13 @@ $('#saveCheckoutBtn').onclick = () => {
   progData.history.unshift(record);
   progData.lastProgress = todayProg;
   progData.lastSlide = todaySlide;
-  progData.nextHomework = nextHw;
+  if (nextHw) {
+    progData.nextHomework = nextHw;
+    memoMarkWritten(progData);
+  } else if (!(progData.nextHomework && progData.memoDate === todayStr())) {
+    progData.nextHomework = '';
+    memoMarkWritten(progData);
+  }
   progData.lastDate = dateStr;
 
   saveSlotProgressData(currentSlotIndex, progData);
@@ -1246,17 +1301,24 @@ $('#saveCheckoutBtn').onclick = () => {
 // 一鍵開啟 PPT 自動跳頁功能 (PowerPoint Auto-Jump)
 // ============================================================
 function launchPpt(slideNum) {
+  memoMarkClassHeld(currentSlotIndex);
   let prog = getSlotProgressData(currentSlotIndex);
   let path = prog.pptPath;
 
-  // 網頁 / iPad 版：用內建 PDF 閱讀器
+  // 網頁 / iPad 版：PDF 用內建閱讀器；PPT 交給 PowerPoint / Keynote
   if (IS_WEB_BUILD) {
     if (!path) {
-      toast('請先選擇這個班級上課用的 PDF');
+      toast('請先選擇這個班級上課用的 PDF 或 PPT');
       $('#pdfStorePicker').click();
       return;
     }
-    openPdfViewer(slideNum || prog.lastSlide || 1);
+    if (/\.pptx?$/i.test(path)) {
+      let isGame = !$('#game').classList.contains('hidden');
+      let typed = parseInt((isGame ? $('#gameSlideInput') : $('#setupSlideInput'))?.value) || 0;
+      openStoredPpt(slideNum || typed || prog.lastSlide || 1);
+    } else {
+      openPdfViewer(slideNum || prog.lastSlide || 1);
+    }
     return;
   }
 
@@ -1289,6 +1351,7 @@ function launchPpt(slideNum) {
 
 function quickSaveSlideProgress(slideNumber) {
   let s = Math.max(1, parseInt(slideNumber) || 1);
+  memoMarkClassHeld(currentSlotIndex);
   let progData = getSlotProgressData(currentSlotIndex);
   let now = new Date();
   let dateStr = `${now.getMonth() + 1}/${now.getDate()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
@@ -1309,7 +1372,10 @@ function quickSaveSlideProgress(slideNumber) {
 
   saveSlotProgressData(currentSlotIndex, progData);
   updateProgressBanners();
-  toast(`🎉 已成功儲存【${currentClassName}】進度至第 ${s} 頁！下次開啟${bindKindLabel(progData)}將直接從第 ${s} 頁開始。`);
+  let nextHint = (IS_WEB_BUILD && bindKindLabel(progData) === 'PPT')
+    ? `下次開啟 PPT 時會提醒你第 ${s} 頁。`
+    : `下次開啟${bindKindLabel(progData)}將直接從第 ${s} 頁開始。`;
+  toast(`🎉 已成功儲存【${currentClassName}】進度至第 ${s} 頁！${nextHint}`);
 }
 
 $('#openPptBtn').onclick = () => launchPpt();
@@ -1339,7 +1405,10 @@ $('#bindPptBtn').onclick = () => {
 function saveBannerMemo() {
   let val = ($('#setupMemoInput')?.value || '').trim();
   let prog = getSlotProgressData(currentSlotIndex);
-  prog.nextHomework = val;
+  if (prog.nextHomework !== val) {
+    prog.nextHomework = val;
+    memoMarkWritten(prog);
+  }
   saveSlotProgressData(currentSlotIndex, prog);
   updateProgressBanners();
   toast(val ? `🎉 已成功儲存【${currentClassName}】備忘錄：${val}` : `已清空【${currentClassName}】備忘事項`);
@@ -1734,15 +1803,18 @@ $('#pdfStorePicker').onchange = async (e) => {
   let file = e.target.files && e.target.files[0];
   e.target.value = '';
   if (!file) return;
-  if (!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') {
-    toast('請選擇 PDF 檔案');
+  let isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+  let isPpt = /\.pptx?$/i.test(file.name);
+  if (!isPdf && !isPpt) {
+    toast('請選擇 PDF 或 PPT（.pptx / .ppt）檔案');
     return;
   }
+  let kind = isPdf ? 'PDF' : 'PPT';
   let slot = currentSlotIndex;
   try {
-    toast('正在存入 PDF…');
+    toast(`正在存入 ${kind}…`);
     let data = await file.arrayBuffer();
-    await pdfStorePut(slot, { name: file.name, size: file.size, savedAt: Date.now(), data });
+    await pdfStorePut(slot, { name: file.name, type: file.type || webFileMime(file.name), size: file.size, savedAt: Date.now(), data });
     try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
     let prog = getSlotProgressData(slot);
     if (prog.pptPath !== file.name) prog.lastSlide = 1;
@@ -1750,10 +1822,153 @@ $('#pdfStorePicker').onchange = async (e) => {
     saveSlotProgressData(slot, prog);
     if (pv.docSlot === slot) { pv.doc = null; pv.docSlot = null; }
     updateProgressBanners();
-    toast(`已存入【${currentClassName}】的 PDF：${file.name}。按「🚀 開啟 PDF」就能上課。`);
+    toast(`已存入【${currentClassName}】的 ${kind}：${file.name}。按「🚀 開啟 ${kind}」就能上課。`);
   } catch {
-    toast('PDF 存入失敗，可能是裝置空間不足，請換小一點的檔案再試。');
+    toast(`${kind} 存入失敗，可能是裝置空間不足，請換小一點的檔案再試。`);
   }
+};
+
+// ============================================================
+// 網頁 / iPad 版的 PPT：存在這台裝置裡，按「開啟 PPT」交給 PowerPoint / Keynote 開
+// （網頁不能指定其他 App 跳到第幾頁，所以會提醒上次的頁數）
+// ============================================================
+function webFileMime(name) {
+  if (/\.pptx$/i.test(name)) return 'application/vnd.openxmlformats-officedocument.presentationml.presentation';
+  if (/\.ppt$/i.test(name)) return 'application/vnd.ms-powerpoint';
+  return 'application/pdf';
+}
+let pptOpenFile = null;
+
+async function openStoredPpt(page) {
+  let dlg = $('#pptOpenDialog');
+  pptOpenFile = null;
+  $('#pptOpenName').textContent = getSlotProgressData(currentSlotIndex).pptPath || '';
+  $('#pptOpenPage').textContent = page;
+  $('#pptOpenGo').disabled = true;
+  $('#pptOpenGo').textContent = '準備中…';
+  dlg.showModal();
+  try {
+    let rec = await pdfStoreGet(currentSlotIndex);
+    if (!rec || !rec.data) {
+      $('#pptOpenGo').textContent = '找不到檔案，請重新選擇';
+      return;
+    }
+    pptOpenFile = new File([rec.data], rec.name, { type: rec.type || webFileMime(rec.name) });
+    $('#pptOpenGo').disabled = false;
+    $('#pptOpenGo').textContent = '📊 用 PowerPoint／Keynote 開啟';
+  } catch {
+    $('#pptOpenGo').textContent = '讀取失敗，請重新選擇檔案';
+  }
+}
+
+$('#pptOpenGo').onclick = async () => {
+  let f = pptOpenFile;
+  if (!f) return;
+  let canShareFile = false;
+  try { canShareFile = !!(navigator.canShare && navigator.canShare({ files: [f] })); } catch {}
+  let isTouch = navigator.maxTouchPoints > 1;
+  if (canShareFile && isTouch) {
+    try {
+      await navigator.share({ files: [f] });
+      $('#pptOpenDialog').close();
+    } catch (err) {
+      if (err && err.name === 'AbortError') return;
+      downloadPptFile(f);
+    }
+    return;
+  }
+  downloadPptFile(f);
+};
+function downloadPptFile(f) {
+  let url = URL.createObjectURL(f);
+  let a = document.createElement('a');
+  a.href = url;
+  a.download = f.name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { a.remove(); URL.revokeObjectURL(url); }, 4000);
+  toast('已下載簡報，請在瀏覽器的下載清單點開它');
+  $('#pptOpenDialog').close();
+}
+$('#pptOpenClose').onclick = () => $('#pptOpenDialog').close();
+
+// ============================================================
+// 新手引導（網頁 / iPad 版）：這一班還沒有名單時，在最上面顯示 3 個步驟
+// ============================================================
+var ngJustSaved = false;
+function ngRosterIsSample(names) {
+  return names.length === 0 || names.every(n => /^\d*\s*學生\d+$/.test(n.trim()));
+}
+function ngIsHomeScreenApp() {
+  return !!(window.navigator.standalone || (window.matchMedia && matchMedia('(display-mode: standalone)').matches));
+}
+function ngIsAppleTouch() {
+  return /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
+}
+function updateNewbieGuide() {
+  let box = $('#newbieGuide');
+  if (!box) return;
+  let off = false;
+  try { off = localStorage.getItem('cockpit-guide-off') === '1'; } catch {}
+  let saved = !!localStorage.getItem('draw-slot-' + currentSlotIndex);
+  let names = roster();
+  let needsRoster = !saved || ngRosterIsSample(names);
+  let show = IS_WEB_BUILD && !off && (needsRoster || ngJustSaved);
+  box.classList.toggle('hidden', !show);
+  if (!show) return;
+  $('#ngHomeTip').classList.toggle('hidden', !(ngIsAppleTouch() && !ngIsHomeScreenApp()));
+  let step1 = !ngRosterIsSample(names);
+  let step2 = saved && !needsRoster;
+  $('#ngStep1').classList.toggle('done', step1);
+  $('#ngStep2').classList.toggle('done', step2);
+  $('#ngStep1').classList.toggle('current', !step1);
+  $('#ngStep2').classList.toggle('current', step1 && !step2);
+  $('#ngStep3').classList.toggle('current', step2);
+  let nm = localStorage.getItem('draw-slot-' + currentSlotIndex + '-name') || '';
+  if (document.activeElement !== $('#ngClassName')) {
+    $('#ngClassName').value = /^班級 \d$/.test(nm) ? '' : nm;
+  }
+}
+
+$('#ngPaste').onclick = () => {
+  let ta = $('#names');
+  if (ngRosterIsSample(roster())) ta.value = '';
+  ta.classList.add('ng-highlight');
+  ta.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  setTimeout(() => ta.focus(), 400);
+  setTimeout(() => ta.classList.remove('ng-highlight'), 4000);
+  updateNewbieGuide();
+};
+$('#names').addEventListener('input', () => { if (IS_WEB_BUILD) updateNewbieGuide(); });
+$('#ngSave').onclick = () => {
+  let names = roster();
+  if (ngRosterIsSample(names)) {
+    toast('請先在名單框貼上學生名單（第 1 步）');
+    $('#ngPaste').click();
+    return;
+  }
+  let name = $('#ngClassName').value.trim()
+    || localStorage.getItem('draw-slot-' + currentSlotIndex + '-name')
+    || `班級 ${currentSlotIndex + 1}`;
+  ngJustSaved = true;
+  $('#ngClassName').blur();
+  saveSlot(currentSlotIndex, name);
+  toast(`✅ 已儲存【${name}】，共 ${names.length} 位學生。下一步：按「▷ 開始上課」。`);
+};
+$('#ngStart').onclick = () => {
+  if (ngRosterIsSample(roster())) {
+    toast('請先貼上學生名單並儲存（第 1、2 步）');
+    return;
+  }
+  if (!localStorage.getItem('draw-slot-' + currentSlotIndex)) $('#ngSave').click();
+  ngJustSaved = false;
+  $('#startGame').click();
+};
+$('#ngSkip').onclick = () => {
+  try { localStorage.setItem('cockpit-guide-off', '1'); } catch {}
+  ngJustSaved = false;
+  updateNewbieGuide();
+  toast('引導已關閉。需要時可以看使用說明。');
 };
 
 // 重置本日記點
@@ -2185,6 +2400,7 @@ $('#quickSaveRosterBtn').onclick = () => {
 };
 
 $('#startGame').onclick = () => {
+  memoMarkClassHeld(currentSlotIndex);
   saveSlot(currentSlotIndex, currentClassName);
   buildBoard();
 };

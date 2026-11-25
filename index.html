@@ -34,6 +34,48 @@
     </div>
   </header>
 
+  <!-- 新手引導（網頁 / iPad 版：這一班還沒有名單時出現） -->
+  <section id="newbieGuide" class="newbie-guide hidden">
+    <div class="ng-head">
+      <strong>👋 第一次使用？照這 3 步做，就可以上課了</strong>
+      <button type="button" class="ng-skip" id="ngSkip">我會了，不用再顯示</button>
+    </div>
+    <div id="ngHomeTip" class="ng-tip hidden">
+      ⚠️ <b>請先把這個網頁「加入主畫面」</b>：點 Safari 上方的「分享」按鈕（方框加向上箭頭）→ 往下找「加入主畫面」→ 按「加入」。<br>
+      然後<b>關掉這個網頁，改從主畫面的「課堂控台」圖示打開</b>，再做下面 3 步。不然名單會存在別的地方，之後會找不到。
+    </div>
+    <ol class="ng-steps">
+      <li id="ngStep1">
+        <span class="ng-num">1</span>
+        <div>
+          <b>貼上學生名單</b>
+          <small>每行一個人。可以從 Excel 選取學生那幾列，按「複製」，再到名單框裡長按 →「貼上」（不要選到標題列）。</small>
+          <button type="button" class="button blue" id="ngPaste">✏️ 清空範例，開始貼名單</button>
+        </div>
+      </li>
+      <li id="ngStep2">
+        <span class="ng-num">2</span>
+        <div>
+          <b>幫這班取名字，然後儲存</b>
+          <small>例如「301」或「三年忠班」。不取名也可以，會叫「班級 1」。</small>
+          <div class="ng-row">
+            <input type="text" id="ngClassName" placeholder="班級名稱">
+            <button type="button" class="button green" id="ngSave">💾 儲存這一班</button>
+          </div>
+        </div>
+      </li>
+      <li id="ngStep3">
+        <span class="ng-num">3</span>
+        <div>
+          <b>開始上課</b>
+          <small>會出現大富翁棋盤，按骰子就能抽人。</small>
+          <button type="button" class="button start" id="ngStart">▷ 開始上課</button>
+        </div>
+      </li>
+    </ol>
+    <p class="ng-foot">還有別的班？在下方「⚡ 快速切換班級」點「班級 2」，這個引導會再出現，照著做一次就好。最多 5 個班。</p>
+  </section>
+
   <!-- 上次進度提示橫幅 (附帶一鍵開啟 PPT 自動跳頁) -->
   <section class="last-progress-banner" id="setupProgressBanner">
     <div class="banner-icon">📌</div>
@@ -474,7 +516,20 @@
 
 <div id="toast" class="toast" role="status"></div>
 <!-- 內建 PDF 閱讀器（網頁 / iPad 版使用） -->
-<input type="file" id="pdfStorePicker" accept="application/pdf,.pdf" hidden>
+<input type="file" id="pdfStorePicker" accept="application/pdf,.pdf,.pptx,.ppt,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint" hidden>
+<!-- 網頁 / iPad 版：開啟 PPT -->
+<dialog id="pptOpenDialog" class="modal">
+  <div class="modal-card" style="width:min(460px, 92vw); text-align:center;">
+    <h2>📊 開啟簡報</h2>
+    <p id="pptOpenName" style="font-weight:700; word-break:break-all;"></p>
+    <p style="font-size:20px; margin:10px 0;">上次上到 <strong style="font-size:30px; color:#c2410c;">第 <span id="pptOpenPage">1</span> 頁</strong></p>
+    <p style="font-size:13px; color:#64748b; line-height:1.6;">打開後請自己跳到這一頁。<br>下課時在控台的「上到第 __ 頁」填頁數，再按「💾 儲存進度」。</p>
+    <div class="modal-actions" style="justify-content:center;">
+      <button type="button" class="button dark" id="pptOpenClose">取消</button>
+      <button type="button" class="button green" id="pptOpenGo">準備中…</button>
+    </div>
+  </div>
+</dialog>
 <div id="pdfViewer" class="pdf-viewer hidden" aria-hidden="true">
   <div id="pdfStage" class="pdf-stage"></div>
   <div id="pdfMsg" class="pdf-msg">PDF 載入中…</div>
