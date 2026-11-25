@@ -34,6 +34,9 @@
     </div>
   </header>
 
+  <!-- 隨身碟資料狀態（有連接隨身碟資料夾時出現） -->
+  <div id="usbBar" class="usb-bar hidden"></div>
+
   <!-- 新手引導（網頁 / iPad 版：這一班還沒有名單時出現） -->
   <section id="newbieGuide" class="newbie-guide hidden">
     <div class="ng-head">
@@ -128,6 +131,9 @@
         <button class="button violet" id="exportAllBackup" title="5 個班級的名單、進度、名單設定全部存成一個檔案，可搬到 iPad 或另一台電腦">📦 匯出全部備份</button>
         <button class="button orange" id="importAllBackup" title="從備份檔還原全部班級資料（會覆蓋這台裝置上的班級資料）">📥 匯入全部備份</button>
         <input id="backupFile" type="file" accept=".json,application/json" hidden>
+      </div>
+      <div class="io-row">
+        <button class="button dark hidden" id="usbConnectBtn" title="選一次隨身碟上的資料夾，之後名單、進度、設定都自動存在隨身碟（電腦的 Edge / Chrome 才有）">🔌 資料存在隨身碟</button>
       </div>
       <div class="attendance-hint">
         <small>💡 提示：名單內若有請假同學，可在行尾加上 <code>#缺席</code> 或 <code>(假)</code>，地圖將自動略過！</small>
@@ -517,6 +523,20 @@
 <div id="toast" class="toast" role="status"></div>
 <!-- 內建 PDF 閱讀器（網頁 / iPad 版使用） -->
 <input type="file" id="pdfStorePicker" accept="application/pdf,.pdf,.pptx,.ppt,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint" hidden>
+<!-- 隨身碟和這台電腦的資料不一樣時，問老師要用哪一份 -->
+<dialog id="usbChoiceDialog" class="modal">
+  <div class="modal-card" style="width:min(520px, 92vw);">
+    <h2>🔌 要用哪一份資料？</h2>
+    <p>隨身碟上的資料，和這台電腦上的資料不一樣。</p>
+    <p style="line-height:1.7;">隨身碟上的資料最後儲存時間：<b id="usbChoiceTime"></b><br>
+      <span style="color:#64748b; font-size:13px;">一般來說，隨身碟上的是最新的，請選第一個。</span></p>
+    <div class="modal-actions" style="flex-wrap:wrap;">
+      <button type="button" class="button dark" id="usbChoiceCancel">先不要連接</button>
+      <button type="button" class="button orange" id="usbUseLocal">用這台電腦的資料（覆蓋隨身碟）</button>
+      <button type="button" class="button green" id="usbUseUsb">用隨身碟上的資料（建議）</button>
+    </div>
+  </div>
+</dialog>
 <!-- 網頁 / iPad 版：開啟 PPT -->
 <dialog id="pptOpenDialog" class="modal">
   <div class="modal-card" style="width:min(460px, 92vw); text-align:center;">

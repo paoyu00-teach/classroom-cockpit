@@ -1171,3 +1171,10 @@ button { cursor: pointer; border: 0; }
 .ng-row input { flex: 1; min-width: 120px; padding: 10px 12px; font-size: 16px; border: 2px solid #fcd34d; border-radius: 10px; }
 .ng-foot { margin: 12px 0 0; font-size: 14px; color: #92400e; }
 textarea#names.ng-highlight { outline: 4px solid #f59e0b; outline-offset: 2px; }
+/* ===== 隨身碟資料狀態列 ===== */
+.usb-bar { margin: 0 0 12px; padding: 10px 14px; border-radius: 12px; font-size: 15px; line-height: 1.8; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.usb-bar.usb-on { background: #ecfdf5; border: 1.5px solid #86efac; color: #14532d; font-size: 14px; padding: 6px 14px; }
+.usb-bar.usb-need { background: #fffbeb; border: 2px solid #f59e0b; color: #78350f; }
+.usb-bar.usb-error { background: #fef2f2; border: 2px solid #f87171; color: #7f1d1d; }
+.usb-bar .usb-state { font-weight: 700; }
+.usb-link { border: 0; background: none; color: inherit; text-decoration: underline; cursor: pointer; font-size: 13px; padding: 4px; }

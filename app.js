@@ -1492,13 +1492,25 @@ function pdfDb() {
     r.onerror = () => reject(r.error);
   });
 }
-async function pdfStoreGet(idx) {
+async function pdfStoreGetLocal(idx) {
   let db = await pdfDb();
   return new Promise((resolve, reject) => {
     let q = db.transaction('files', 'readonly').objectStore('files').get('slot-' + idx);
     q.onsuccess = () => resolve(q.result || null);
     q.onerror = () => reject(q.error);
   });
+}
+// 先找這台裝置裡的；找不到（例如換了一台電腦）就到隨身碟的「教材」資料夾找，找到後在這台電腦留一份
+async function pdfStoreGet(idx) {
+  let want = getSlotProgressData(idx).pptPath;
+  let rec = await pdfStoreGetLocal(idx).catch(() => null);
+  if (rec && rec.data && (!want || rec.name === want)) return rec;
+  let fromUsb = await usbLoadMaterial(want);
+  if (fromUsb) {
+    await pdfStorePut(idx, fromUsb).catch(() => {});
+    return fromUsb;
+  }
+  return (rec && !want) ? rec : null;
 }
 async function pdfStorePut(idx, rec) {
   let db = await pdfDb();
@@ -1815,6 +1827,7 @@ $('#pdfStorePicker').onchange = async (e) => {
     toast(`正在存入 ${kind}…`);
     let data = await file.arrayBuffer();
     await pdfStorePut(slot, { name: file.name, type: file.type || webFileMime(file.name), size: file.size, savedAt: Date.now(), data });
+    await usbSaveMaterial(file.name, data);
     try { navigator.storage && navigator.storage.persist && navigator.storage.persist(); } catch {}
     let prog = getSlotProgressData(slot);
     if (prog.pptPath !== file.name) prog.lastSlide = 1;
@@ -2488,12 +2501,27 @@ $('#exportJson').onclick = () => {
 
 // 全部備份：5 個班級的名單、卡牌、進度歷史、名單設定（一定點／不點）、試算表設定，一個檔案搬到 iPad 或其他電腦
 const BACKUP_KEY_PATTERN = /^(draw-slot-|cockpit-gsheet-)/;
-$('#exportAllBackup').onclick = () => {
+function collectAllBackupData() {
   let all = {};
   for (let i = 0; i < localStorage.length; i++) {
     let k = localStorage.key(i);
     if (BACKUP_KEY_PATTERN.test(k)) all[k] = localStorage.getItem(k);
   }
+  return all;
+}
+function applyAllBackupData(data) {
+  usbSuppressDirty = true;
+  try {
+    Object.keys(localStorage).filter(k => BACKUP_KEY_PATTERN.test(k)).forEach(k => localStorage.removeItem(k));
+    Object.entries(data).forEach(([k, v]) => { if (BACKUP_KEY_PATTERN.test(k)) localStorage.setItem(k, v); });
+  } finally {
+    usbSuppressDirty = false;
+  }
+  loadSlot(0);
+  renderQuick();
+}
+$('#exportAllBackup').onclick = () => {
+  let all = collectAllBackupData();
   // 試算表網址若是用程式內建預設值，也一併寫進備份，搬到 iPad 後同步照常運作
   if (!all['cockpit-gsheet-url'] && DEFAULT_GSHEET_SYNC_URL) all['cockpit-gsheet-url'] = DEFAULT_GSHEET_SYNC_URL;
   let payload = { type: 'classroom-cockpit-backup', version: 1, exportedAt: new Date().toISOString(), data: all };
@@ -2516,15 +2544,253 @@ $('#backupFile').onchange = async (e) => {
     let parsed = JSON.parse(await file.text());
     if (parsed.type !== 'classroom-cockpit-backup' || !parsed.data) throw new Error('not backup');
     if (!confirm('匯入後會覆蓋這台裝置上目前的班級名單、進度與設定，確定要匯入嗎？')) return;
-    Object.keys(localStorage).filter(k => BACKUP_KEY_PATTERN.test(k)).forEach(k => localStorage.removeItem(k));
-    Object.entries(parsed.data).forEach(([k, v]) => { if (BACKUP_KEY_PATTERN.test(k)) localStorage.setItem(k, v); });
-    loadSlot(0);
-    renderQuick();
+    applyAllBackupData(parsed.data);
+    usbMarkDirty();
     toast('全部備份匯入完成');
   } catch {
     toast('這不是課堂控台的全部備份檔');
   }
 };
+
+// ============================================================
+// 資料存在隨身碟（電腦的 Edge / Chrome）：
+//   選一次隨身碟上的資料夾，之後名單、進度、設定都自動存成那個資料夾裡的「課堂控台資料.json」。
+//   換一台電腦時，插上隨身碟、連接同一個資料夾，就會讀回隨身碟上的資料。
+//   網頁版選的 PDF／PPT 也會複製一份到資料夾裡的「教材」資料夾。
+// ============================================================
+const USB_DATA_NAME = '課堂控台資料.json';
+const USB_MATERIAL_DIR = '教材';
+var usbSuppressDirty = false;
+var usb = { dir: null, status: 'off', lastSaved: null, dirty: false, timer: null, writing: false };
+
+function usbSupported() { return typeof window.showDirectoryPicker === 'function'; }
+async function usbHandleGet() {
+  try {
+    let db = await pdfDb();
+    return await new Promise((res) => {
+      let q = db.transaction('files', 'readonly').objectStore('files').get('usb-dir');
+      q.onsuccess = () => res(q.result || null);
+      q.onerror = () => res(null);
+    });
+  } catch { return null; }
+}
+async function usbHandleSet(h) {
+  let db = await pdfDb();
+  await new Promise((res, rej) => {
+    let tx = db.transaction('files', 'readwrite');
+    if (h) tx.objectStore('files').put(h, 'usb-dir'); else tx.objectStore('files').delete('usb-dir');
+    tx.oncomplete = res; tx.onerror = () => rej(tx.error);
+  });
+}
+
+// 任何名單／進度／設定一有變動，就排程存到隨身碟
+(() => {
+  let origSet = Storage.prototype.setItem, origRemove = Storage.prototype.removeItem;
+  Storage.prototype.setItem = function (k, v) {
+    origSet.call(this, k, v);
+    if (this === window.localStorage && BACKUP_KEY_PATTERN.test(k)) usbMarkDirty();
+  };
+  Storage.prototype.removeItem = function (k) {
+    origRemove.call(this, k);
+    if (this === window.localStorage && BACKUP_KEY_PATTERN.test(k)) usbMarkDirty();
+  };
+})();
+function usbMarkDirty() {
+  if (usbSuppressDirty || usb.status !== 'on') return;
+  usb.dirty = true;
+  clearTimeout(usb.timer);
+  usb.timer = setTimeout(usbWriteNow, 1200);
+  renderUsbBar();
+}
+async function usbWriteNow() {
+  clearTimeout(usb.timer);
+  if (usb.status !== 'on' || usb.writing) return;
+  usb.writing = true;
+  usb.dirty = false;
+  try {
+    let payload = { type: 'classroom-cockpit-backup', version: 1, exportedAt: new Date().toISOString(), data: collectAllBackupData() };
+    let fh = await usb.dir.getFileHandle(USB_DATA_NAME, { create: true });
+    let w = await fh.createWritable();
+    await w.write(JSON.stringify(payload));
+    await w.close();
+    usb.lastSaved = new Date();
+  } catch (e) {
+    usb.status = 'error';
+    usb.dirty = true;
+    toast('⚠️ 存不進隨身碟（可能拔掉了）。資料暫時只存在這台電腦，插回後按上方「重新連接」。');
+  } finally {
+    usb.writing = false;
+    renderUsbBar();
+    if (usb.status === 'on' && usb.dirty) usb.timer = setTimeout(usbWriteNow, 800);
+  }
+}
+async function usbReadData(dir) {
+  try {
+    let fh = await dir.getFileHandle(USB_DATA_NAME);
+    let parsed = JSON.parse(await (await fh.getFile()).text());
+    if (parsed.type !== 'classroom-cockpit-backup' || !parsed.data) return { bad: true };
+    return parsed;
+  } catch (e) {
+    if (e && e.name === 'NotFoundError') return null;
+    return { bad: true };
+  }
+}
+function usbLocalHasClasses() {
+  return Object.keys(collectAllBackupData()).some(k => /^draw-slot-\d+$/.test(k));
+}
+function usbAskWhich(usbSavedAt) {
+  return new Promise(resolve => {
+    let dlg = $('#usbChoiceDialog');
+    let t = usbSavedAt ? new Date(usbSavedAt) : null;
+    $('#usbChoiceTime').textContent = t ? `${t.getMonth() + 1}/${t.getDate()} ${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : '不明';
+    let done = (v) => { dlg.close(); resolve(v); };
+    $('#usbUseUsb').onclick = () => done('usb');
+    $('#usbUseLocal').onclick = () => {
+      if (confirm('確定要用這台電腦上的資料，覆蓋隨身碟上的資料嗎？隨身碟上原本的資料會被取代。')) done('local');
+    };
+    $('#usbChoiceCancel').onclick = () => done(null);
+    dlg.oncancel = (e) => { e.preventDefault(); done(null); };
+    dlg.showModal();
+  });
+}
+async function usbConnect(dir) {
+  let parsed = await usbReadData(dir);
+  if (parsed && parsed.bad) {
+    toast('隨身碟資料夾裡的「課堂控台資料.json」讀不出來，請確認檔案沒有損壞。');
+    return false;
+  }
+  if (parsed) {
+    let same = JSON.stringify(parsed.data) === JSON.stringify(collectAllBackupData());
+    let choice = 'usb';
+    if (!same && usbLocalHasClasses()) choice = await usbAskWhich(parsed.exportedAt);
+    if (!choice) return false;
+    usb.dir = dir;
+    usb.status = 'on';
+    await usbHandleSet(dir).catch(() => {});
+    if (choice === 'usb') {
+      if (!same) applyAllBackupData(parsed.data);
+      usb.lastSaved = parsed.exportedAt ? new Date(parsed.exportedAt) : null;
+      toast(`🔌 已連接隨身碟，讀入「${dir.name}」裡的資料`);
+    } else {
+      await usbWriteNow();
+      toast('🔌 已連接隨身碟，並把這台電腦的資料存進去');
+    }
+  } else {
+    usb.dir = dir;
+    usb.status = 'on';
+    await usbHandleSet(dir).catch(() => {});
+    await usbWriteNow();
+    toast(`🔌 已連接隨身碟資料夾「${dir.name}」，以後會自動儲存到這裡`);
+  }
+  renderUsbBar();
+  return true;
+}
+async function usbPickFolder() {
+  let dir;
+  try {
+    dir = await window.showDirectoryPicker({ id: 'cockpit-usb', mode: 'readwrite' });
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+    toast('這個位置不能用。請在隨身碟裡建立一個資料夾（例如「課堂控台」），再選那個資料夾。');
+    return;
+  }
+  await usbConnect(dir);
+}
+async function usbReconnect() {
+  let h = usb.dir || await usbHandleGet();
+  if (!h) return usbPickFolder();
+  try {
+    let p = await h.requestPermission({ mode: 'readwrite' });
+    if (p !== 'granted') { toast('需要允許存取隨身碟資料夾，才能自動儲存'); return; }
+    let wasDirty = usb.status === 'error' && usb.dirty;
+    if (wasDirty) {
+      // 拔掉期間在這台電腦改過資料：直接把目前的資料寫回隨身碟
+      usb.dir = h; usb.status = 'on';
+      await usbWriteNow();
+      if (usb.status === 'on') toast('🔌 已重新連接，剛才的變動已存回隨身碟');
+      renderUsbBar();
+      return;
+    }
+    await usbConnect(h);
+  } catch {
+    usb.status = 'error';
+    renderUsbBar();
+    toast('找不到隨身碟資料夾，請確認隨身碟有插好，或重新選擇資料夾。');
+  }
+}
+async function usbDisconnect() {
+  if (usb.status === 'on' && usb.dirty) await usbWriteNow();
+  usb.dir = null;
+  usb.status = 'off';
+  await usbHandleSet(null).catch(() => {});
+  renderUsbBar();
+  toast('已中斷隨身碟。之後資料只存在這台電腦。');
+}
+function renderUsbBar() {
+  let bar = $('#usbBar'), btn = $('#usbConnectBtn');
+  if (!bar) return;
+  if (btn) btn.classList.toggle('hidden', !usbSupported() || usb.status !== 'off');
+  bar.className = 'usb-bar' + (usb.status === 'off' ? ' hidden' : ' usb-' + usb.status);
+  let name = usb.dir ? usb.dir.name : '';
+  if (usb.status === 'need') {
+    bar.innerHTML = `🔌 上次的資料存在隨身碟資料夾「<b></b>」。請插好隨身碟，再按 <button type="button" class="button green compact" id="usbBarGo">連接隨身碟</button> <button type="button" class="usb-link" id="usbBarForget">不用了，改存在這台電腦</button>`;
+  } else if (usb.status === 'on') {
+    let t = usb.lastSaved;
+    let ts = t ? `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : '';
+    let state = usb.dirty || usb.writing ? '儲存中…' : (ts ? `已儲存 ${ts}` : '已連接');
+    bar.innerHTML = `🔌 資料自動存在隨身碟資料夾「<b></b>」｜<span class="usb-state">${state}</span> <button type="button" class="usb-link" id="usbBarForget">中斷連接</button>`;
+  } else if (usb.status === 'error') {
+    bar.innerHTML = `⚠️ 存不進隨身碟資料夾「<b></b>」（可能拔掉了）。現在的變動只存在這台電腦。插回隨身碟後按 <button type="button" class="button orange compact" id="usbBarGo">重新連接</button>`;
+  }
+  let b = bar.querySelector('b'); if (b) b.textContent = name;
+  let go = $('#usbBarGo'); if (go) go.onclick = usbReconnect;
+  let fg = $('#usbBarForget'); if (fg) fg.onclick = usbDisconnect;
+}
+if ($('#usbConnectBtn')) $('#usbConnectBtn').onclick = usbPickFolder;
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && usb.status === 'on' && usb.dirty) usbWriteNow();
+});
+window.addEventListener('beforeunload', (e) => {
+  if (usb.status === 'on' && (usb.dirty || usb.writing)) { usbWriteNow(); e.preventDefault(); e.returnValue = ''; }
+});
+
+// 教材（網頁版的 PDF／PPT）也放一份在隨身碟資料夾
+async function usbSaveMaterial(name, data) {
+  if (usb.status !== 'on') return;
+  try {
+    let d = await usb.dir.getDirectoryHandle(USB_MATERIAL_DIR, { create: true });
+    let fh = await d.getFileHandle(name, { create: true });
+    let w = await fh.createWritable();
+    await w.write(data);
+    await w.close();
+  } catch {
+    toast('教材已存在這台電腦，但沒有成功複製到隨身碟');
+  }
+}
+async function usbLoadMaterial(name) {
+  if (usb.status !== 'on' || !name) return null;
+  try {
+    let d = await usb.dir.getDirectoryHandle(USB_MATERIAL_DIR);
+    let f = await (await d.getFileHandle(name)).getFile();
+    return { name, type: f.type || webFileMime(name), size: f.size, savedAt: Date.now(), data: await f.arrayBuffer() };
+  } catch { return null; }
+}
+
+async function usbInit() {
+  renderUsbBar();
+  if (!usbSupported()) return;
+  let h = await usbHandleGet();
+  if (!h) return;
+  usb.dir = h;
+  let p = 'prompt';
+  try { p = await h.queryPermission({ mode: 'readwrite' }); } catch {}
+  if (p === 'granted') {
+    try { await usbConnect(h); return; } catch {}
+  }
+  usb.status = 'need';
+  renderUsbBar();
+}
+setTimeout(usbInit, 0);
 
 $('#importJson').onclick = () => $('#jsonFile').click();
 $('#jsonFile').onchange = async (e) => {
